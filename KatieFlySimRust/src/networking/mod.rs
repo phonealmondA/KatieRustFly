@@ -10,4 +10,4 @@ pub use network_manager::{
     NetworkStats, PlayerStateData, GameStateSnapshot,
 };
 pub use multiplayer_host::{MultiplayerHost, HostEvent};
-pub use multiplayer_client::MultiplayerClient;
+pub use multiplayer_client::{MultiplayerClient, ClientEvent};
