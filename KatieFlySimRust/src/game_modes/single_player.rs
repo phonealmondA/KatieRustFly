@@ -182,7 +182,13 @@ impl SinglePlayerGame {
             }
         }
 
-        // Handle mouse click for controls button
+        // Toggle controls menu with Enter key
+        if is_key_pressed(KeyCode::Enter) {
+            self.show_controls = !self.show_controls;
+            self.is_paused = self.show_controls; // Pause when showing controls
+        }
+
+        // Handle mouse click for controls button and popup
         if is_mouse_button_pressed(MouseButton::Left) {
             let mouse_pos = mouse_position();
             let screen_w = screen_width();
@@ -193,25 +199,30 @@ impl SinglePlayerGame {
             let button_w = 40.0;
             let button_h = 30.0;
 
-            // Check if click is on the button
-            if mouse_pos.0 >= button_x && mouse_pos.0 <= button_x + button_w &&
-               mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h {
+            // Check if click is on the button first
+            let clicked_button = mouse_pos.0 >= button_x && mouse_pos.0 <= button_x + button_w &&
+                                 mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h;
+
+            if clicked_button {
                 self.show_controls = !self.show_controls;
                 self.is_paused = self.show_controls; // Pause when showing controls
-            }
-
-            // If controls are showing, check if clicking outside to close
-            if self.show_controls {
+                log::info!("Controls button clicked, show_controls: {}", self.show_controls);
+            } else if self.show_controls {
+                // Only check "click outside to close" if we didn't click the button
                 let popup_x = screen_w / 2.0 - 200.0;
                 let popup_y = screen_height() / 2.0 - 250.0;
                 let popup_w = 400.0;
                 let popup_h = 500.0;
 
+                // Check if click is inside the popup
+                let clicked_inside = mouse_pos.0 >= popup_x && mouse_pos.0 <= popup_x + popup_w &&
+                                     mouse_pos.1 >= popup_y && mouse_pos.1 <= popup_y + popup_h;
+
                 // Close if clicking outside the popup
-                if mouse_pos.0 < popup_x || mouse_pos.0 > popup_x + popup_w ||
-                   mouse_pos.1 < popup_y || mouse_pos.1 > popup_y + popup_h {
+                if !clicked_inside {
                     self.show_controls = false;
                     self.is_paused = false;
+                    log::info!("Clicked outside popup, closing controls");
                 }
             }
         }
@@ -457,6 +468,7 @@ impl SinglePlayerGame {
                 ("T", "Launch new rocket"),
                 ("P", "Pause/Unpause"),
                 ("F5", "Quick save"),
+                ("ENTER", "Toggle this menu"),
                 ("ESC", "Return to menu / Close this"),
             ];
 
