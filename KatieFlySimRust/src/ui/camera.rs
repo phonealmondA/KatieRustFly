@@ -32,8 +32,8 @@ impl Camera {
             zoom_level: 1.0,
             target_zoom: 1.0,
             target_center: center,
-            zoom_speed: 5.0,
-            follow_smoothing: 0.1,
+            zoom_speed: 2.0,          // Reduced from 5.0 for slower zoom
+            follow_smoothing: 0.5,    // Increased from 0.1 for tighter following
             window_size,
         }
     }
