@@ -29,8 +29,8 @@ impl Camera {
 
         Camera {
             camera,
-            zoom_level: 1.0,
-            target_zoom: 1.0,
+            zoom_level: 0.00001,
+            target_zoom: 0.00001,
             target_center: center,
             zoom_speed: 5.0,
             follow_smoothing: 0.1,
@@ -65,7 +65,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(0.1).min(10.0); // Clamp zoom
+        self.target_zoom = zoom; // No zoom locking - allow extreme zoom values
     }
 
     /// Adjust zoom by a delta
@@ -101,8 +101,8 @@ impl Camera {
 
     /// Reset camera to default
     pub fn reset(&mut self, window_size: Vec2) {
-        self.zoom_level = 1.0;
-        self.target_zoom = 1.0;
+        self.zoom_level = 0.00001;
+        self.target_zoom = 0.00001;
         let center = Vec2::new(window_size.x / 2.0, window_size.y / 2.0);
         self.target_center = center;
         self.camera.target = center;
@@ -141,18 +141,20 @@ mod tests {
     #[test]
     fn test_camera_creation() {
         let camera = Camera::new(Vec2::new(1920.0, 1080.0));
-        assert_eq!(camera.zoom_level(), 1.0);
+        assert_eq!(camera.zoom_level(), 0.00001);
     }
 
     #[test]
-    fn test_zoom_clamping() {
+    fn test_extreme_zoom_allowed() {
         let mut camera = Camera::new(Vec2::new(1920.0, 1080.0));
 
-        camera.set_target_zoom(20.0); // Too high
-        assert_eq!(camera.target_zoom, 10.0);
+        // Test extreme zoom out
+        camera.set_target_zoom(0.00001);
+        assert_eq!(camera.target_zoom, 0.00001);
 
-        camera.set_target_zoom(0.01); // Too low
-        assert_eq!(camera.target_zoom, 0.1);
+        // Test extreme zoom in
+        camera.set_target_zoom(1000.0);
+        assert_eq!(camera.target_zoom, 1000.0);
     }
 
     #[test]
