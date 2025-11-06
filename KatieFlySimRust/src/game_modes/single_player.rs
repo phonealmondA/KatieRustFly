@@ -187,10 +187,18 @@ impl SinglePlayerGame {
             }
         }
 
-        // Mouse wheel zoom
+        // Mouse wheel zoom (reduced delta for finer control)
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
-            self.camera.adjust_zoom(-mouse_wheel * 0.1);
+            self.camera.adjust_zoom(-mouse_wheel * 0.02);
+        }
+
+        // Keyboard zoom controls (Q = zoom out, E = zoom in)
+        if is_key_down(KeyCode::Q) {
+            self.camera.adjust_zoom(-0.02); // Gradual zoom out
+        }
+        if is_key_down(KeyCode::E) {
+            self.camera.adjust_zoom(0.02); // Gradual zoom in
         }
 
         SinglePlayerResult::Continue
