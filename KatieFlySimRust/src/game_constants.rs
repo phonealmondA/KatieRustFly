@@ -18,7 +18,7 @@ impl GameConstants {
 
     // ==================== Primary Planet Parameters ====================
     pub const MAIN_PLANET_MASS: f32 = 198910000.0;
-    pub const ORBIT_PERIOD: f32 = 500000000.0;  // seconds (puts moon ~40,000+ units away for clear visibility)
+    pub const ORBIT_PERIOD: f32 = 420.0;  // seconds - RESTORED to original C++ value
 
     // ==================== Derived Planet Parameters ====================
     pub const SECONDARY_PLANET_MASS: f32 = Self::MAIN_PLANET_MASS * 0.06;
@@ -27,7 +27,9 @@ impl GameConstants {
     pub const MAIN_PLANET_RADIUS: f32 = 10000.0;
     pub const MASS_RATIO: f32 = 0.06;
     pub const CUBE_ROOT_APPROX: f32 = 60.0;
-    pub const SECONDARY_PLANET_RADIUS: f32 = 5000.0; // Moon radius = 1/2 Earth radius (diameter = 1/2 Earth diameter, making moon 1/4 the size)
+    // MOON SIZE: Make it 1/4 the size of Earth (radius = 2500 instead of original 0.01667)
+    // Original was (10000/60)/10000 = 0.01667, but that's too small to see
+    pub const SECONDARY_PLANET_RADIUS: f32 = 2500.0;
 
     // Planet positions
     pub const MAIN_PLANET_X: f32 = 400.0;
