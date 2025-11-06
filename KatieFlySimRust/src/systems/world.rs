@@ -157,22 +157,70 @@ impl World {
         }
 
         // Apply gravity to rockets
-        let planet_refs: Vec<&Planet> = self.planets.values().collect();
-        for rocket in self.rockets.values_mut() {
-            self.gravity_simulator
-                .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
-            rocket.update(delta_time);
-        }
+        {
+            let planet_refs: Vec<&Planet> = self.planets.values().collect();
+            for rocket in self.rockets.values_mut() {
+                self.gravity_simulator
+                    .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+                rocket.update(delta_time);
+            }
+        } // planet_refs goes out of scope here
+
+        // Check for rocket-planet collisions
+        self.check_rocket_planet_collisions();
 
         // Apply gravity to satellites
-        for satellite in self.satellites.values_mut() {
-            self.gravity_simulator
-                .apply_planet_gravity_to_satellite(satellite, &planet_refs, delta_time);
-            satellite.update(delta_time);
+        {
+            let planet_refs: Vec<&Planet> = self.planets.values().collect();
+            for satellite in self.satellites.values_mut() {
+                self.gravity_simulator
+                    .apply_planet_gravity_to_satellite(satellite, &planet_refs, delta_time);
+                satellite.update(delta_time);
+            }
         }
 
         // TODO: Apply planet-to-planet gravity
         // TODO: Apply rocket-to-rocket gravity
+    }
+
+    /// Check for collisions between rockets and planets
+    fn check_rocket_planet_collisions(&mut self) {
+        let mut collisions = Vec::new();
+
+        // Collect collision information
+        for (rocket_id, rocket) in &self.rockets {
+            for (planet_id, planet) in &self.planets {
+                let distance = (rocket.position() - planet.position()).length();
+                if distance < planet.radius() {
+                    collisions.push((*rocket_id, *planet_id, distance, planet.radius()));
+                }
+            }
+        }
+
+        // Handle collisions: bounce the rocket back to the surface
+        for (rocket_id, _planet_id, _distance, _planet_radius) in collisions {
+            if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                if let Some(planet) = self.planets.values().find(|p| {
+                    (rocket.position() - p.position()).length() < p.radius()
+                }) {
+                    // Calculate collision normal
+                    let direction = (rocket.position() - planet.position()).normalize();
+
+                    // Use GameObject trait's set_velocity and position methods
+                    // Since we can't directly set position, we'll adjust velocity to bounce
+                    let normal = direction;
+                    let velocity = rocket.velocity();
+
+                    // Reflect velocity (bounce with energy loss)
+                    let vel_along_normal = velocity.dot(normal);
+                    if vel_along_normal < 0.0 {
+                        // Only bounce if moving towards the planet
+                        let reflected_vel = velocity - normal * (2.0 * vel_along_normal * 0.5); // 0.5 = bounce damping
+                        rocket.set_velocity(reflected_vel);
+                    }
+                }
+            }
+        }
     }
 
     // === Render ===

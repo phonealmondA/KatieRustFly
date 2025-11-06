@@ -65,7 +65,8 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom; // No zoom locking - allow extreme zoom values
+        // Clamp zoom to allow extreme zoom out (0.00001) and zoom in (100.0)
+        self.target_zoom = zoom.max(0.00001).min(100.0);
     }
 
     /// Adjust zoom by a delta
@@ -145,16 +146,24 @@ mod tests {
     }
 
     #[test]
-    fn test_extreme_zoom_allowed() {
+    fn test_zoom_clamping() {
         let mut camera = Camera::new(Vec2::new(1920.0, 1080.0));
 
-        // Test extreme zoom out
+        // Test extreme zoom out at boundary
         camera.set_target_zoom(0.00001);
         assert_eq!(camera.target_zoom, 0.00001);
 
-        // Test extreme zoom in
+        // Test below minimum
+        camera.set_target_zoom(0.000001);
+        assert_eq!(camera.target_zoom, 0.00001);
+
+        // Test zoom in at boundary
+        camera.set_target_zoom(100.0);
+        assert_eq!(camera.target_zoom, 100.0);
+
+        // Test above maximum
         camera.set_target_zoom(1000.0);
-        assert_eq!(camera.target_zoom, 1000.0);
+        assert_eq!(camera.target_zoom, 100.0);
     }
 
     #[test]

@@ -27,7 +27,7 @@ impl GameConstants {
     pub const MAIN_PLANET_RADIUS: f32 = 10000.0;
     pub const MASS_RATIO: f32 = 0.06;
     pub const CUBE_ROOT_APPROX: f32 = 60.0;
-    pub const SECONDARY_PLANET_RADIUS: f32 = (Self::MAIN_PLANET_RADIUS / Self::CUBE_ROOT_APPROX) / 10000.0;
+    pub const SECONDARY_PLANET_RADIUS: f32 = Self::MAIN_PLANET_RADIUS / Self::CUBE_ROOT_APPROX;
 
     // Planet positions
     pub const MAIN_PLANET_X: f32 = 400.0;
