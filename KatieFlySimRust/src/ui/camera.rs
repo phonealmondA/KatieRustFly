@@ -132,6 +132,22 @@ impl Camera {
         // Use macroquad's camera to convert screen to world coordinates
         self.camera.screen_to_world(screen_pos)
     }
+
+    /// Convert world coordinates to screen coordinates
+    pub fn world_to_screen(&self, world_pos: Vec2) -> Vec2 {
+        // Use macroquad's camera to convert world to screen coordinates
+        self.camera.world_to_screen(world_pos)
+    }
+
+    /// Set camera position (instant, no smoothing)
+    pub fn set_position(&mut self, position: Vec2) {
+        self.set_center(position);
+    }
+
+    /// Get current zoom level
+    pub fn zoom(&self) -> f32 {
+        self.zoom_level
+    }
 }
 
 #[cfg(test)]

@@ -148,6 +148,51 @@ impl World {
         self.satellites.len()
     }
 
+    /// Get iterator over all planets
+    pub fn planets(&self) -> impl Iterator<Item = &Planet> {
+        self.planets.values()
+    }
+
+    /// Get iterator over all rockets
+    pub fn rockets(&self) -> impl Iterator<Item = &Rocket> {
+        self.rockets.values()
+    }
+
+    /// Get iterator over all satellites
+    pub fn satellites(&self) -> impl Iterator<Item = &Satellite> {
+        self.satellites.values()
+    }
+
+    // === Entity Creation Helpers ===
+
+    /// Spawn a rocket at a specific position
+    pub fn spawn_rocket_at(&mut self, position: macroquad::prelude::Vec2, velocity: macroquad::prelude::Vec2, rotation: f32) -> EntityId {
+        use macroquad::prelude::*;
+        let mut rocket = Rocket::new(position, velocity, WHITE, 1.0);
+        rocket.rotate(rotation);
+        self.add_rocket(rocket)
+    }
+
+    // === Rocket Control ===
+
+    /// Set rocket thrust state
+    pub fn set_rocket_thrust(&mut self, rocket_id: EntityId, thrust: bool) {
+        if let Some(rocket) = self.get_rocket_mut(rocket_id) {
+            if thrust {
+                rocket.set_thrust_level(1.0);
+            } else {
+                rocket.set_thrust_level(0.0);
+            }
+        }
+    }
+
+    /// Rotate rocket
+    pub fn rotate_rocket(&mut self, rocket_id: EntityId, delta_rotation: f32) {
+        if let Some(rocket) = self.get_rocket_mut(rocket_id) {
+            rocket.rotate(delta_rotation);
+        }
+    }
+
     // === Update ===
 
     pub fn update(&mut self, delta_time: f32) {
