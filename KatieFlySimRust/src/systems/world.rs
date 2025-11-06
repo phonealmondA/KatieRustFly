@@ -278,7 +278,38 @@ impl World {
             self.satellites.remove(&satellite_id);
         }
 
-        // TODO: Apply planet-to-planet gravity
+        // Apply planet-to-planet gravity
+        // Following C++ pattern: first planet (Earth, ID 0) is pinned and only applies outbound gravity
+        let mut planet_ids: Vec<EntityId> = self.planets.keys().copied().collect();
+        planet_ids.sort(); // Ensure consistent ordering (first planet added = Earth)
+
+        if planet_ids.len() >= 2 {
+            let earth_id = planet_ids[0]; // First planet is Earth (pinned/stationary)
+
+            // Apply gravity FROM Earth TO all other planets (one-way to keep Earth stationary)
+            for &other_id in &planet_ids[1..] {
+                if earth_id == other_id {
+                    continue;
+                }
+
+                // Get immutable references to calculate force
+                let earth = &self.planets[&earth_id];
+                let other = &self.planets[&other_id];
+
+                let force = self.gravity_simulator.calculate_gravitational_force(
+                    other.position(),
+                    other.mass(),
+                    earth.position(),
+                    earth.mass(),
+                );
+
+                // Apply acceleration to the other planet (moon)
+                let acceleration = force / other.mass();
+                let other_planet = self.planets.get_mut(&other_id).unwrap();
+                other_planet.set_velocity(other_planet.velocity() + acceleration * delta_time);
+            }
+        }
+
         // TODO: Apply rocket-to-rocket gravity
     }
 
