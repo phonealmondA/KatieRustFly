@@ -67,13 +67,13 @@ impl TrajectoryPredictor {
                 let distance = vector_helper::magnitude(direction);
 
                 if distance > planet.radius() {
-                    let force = self.gravity_simulator.calculate_gravitational_force(
-                        planet.mass(),
+                    let force_vec = self.gravity_simulator.calculate_gravitational_force(
+                        position,
                         rocket.current_mass(),
-                        distance,
+                        planet.position(),
+                        planet.mass(),
                     );
-                    let force_direction = vector_helper::normalize(direction);
-                    acceleration += force_direction * force / rocket.current_mass();
+                    acceleration += force_vec / rocket.current_mass();
                 }
             }
 
@@ -166,14 +166,15 @@ impl TrajectoryPredictor {
             let distance = vector_helper::magnitude(direction);
 
             if distance > planet.radius() {
-                let force = self.gravity_simulator.calculate_gravitational_force(
-                    planet.mass(),
+                let force_vec = self.gravity_simulator.calculate_gravitational_force(
+                    rocket_pos,
                     rocket.current_mass(),
-                    distance,
+                    planet.position(),
+                    planet.mass(),
                 );
 
-                let force_direction = vector_helper::normalize(direction);
-                let force_vector = force_direction * force * scale;
+                let force_magnitude = vector_helper::magnitude(force_vec);
+                let force_vector = force_vec * scale;
 
                 // Draw force vector as arrow
                 let end_pos = rocket_pos + force_vector;
@@ -190,6 +191,11 @@ impl TrajectoryPredictor {
 
                 // Arrow head
                 let arrow_size = 10.0;
+                let force_direction = if force_magnitude > 0.0 {
+                    vector_helper::normalize(force_vec)
+                } else {
+                    Vec2::new(1.0, 0.0)
+                };
                 let perpendicular = Vec2::new(-force_direction.y, force_direction.x);
                 let arrow_base = end_pos - force_direction * arrow_size;
                 let arrow_left = arrow_base + perpendicular * arrow_size * 0.5;
@@ -204,7 +210,7 @@ impl TrajectoryPredictor {
 
                 // Draw label with force magnitude
                 let label_pos = rocket_pos + force_vector * 0.5;
-                let force_text = format!("{:.1}N", force);
+                let force_text = format!("{:.1}N", force_magnitude);
                 draw_text(
                     &force_text,
                     label_pos.x + 5.0,

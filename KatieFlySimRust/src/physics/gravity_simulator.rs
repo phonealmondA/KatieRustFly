@@ -121,7 +121,7 @@ impl GravitySimulator {
 
     /// Calculate gravitational force vector from object1 to object2
     /// Returns the force vector applied to object1
-    fn calculate_gravitational_force(
+    pub fn calculate_gravitational_force(
         &self,
         pos1: Vec2,
         mass1: f32,

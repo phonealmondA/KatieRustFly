@@ -473,9 +473,9 @@ mod tests {
         network.request_transfer(1, 2, 50.0, TransferPriority::Normal);
         network.request_transfer(3, 4, 100.0, TransferPriority::Emergency);
 
-        // Emergency request should be first
+        // Both requests should be processed (max_simultaneous_transfers is 5)
         network.update(0.0);
-        assert_eq!(network.active_transfer_count(), 1);
+        assert_eq!(network.active_transfer_count(), 2);
     }
 
     #[test]

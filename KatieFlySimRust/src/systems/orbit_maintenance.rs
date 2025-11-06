@@ -129,7 +129,7 @@ impl OrbitMaintenance {
             current_radius,
         );
 
-        let escape_velocity = (2.0 * GameConstants::GRAVITATIONAL_CONSTANT * planet.mass() / current_radius).sqrt();
+        let escape_velocity = (2.0 * GameConstants::G * planet.mass() / current_radius).sqrt();
 
         // Analyze drift
         let radius_deviation = current_radius - self.config.target_orbital_radius;
@@ -391,11 +391,11 @@ impl OrbitMaintenance {
     // === Orbital Mechanics Calculations ===
 
     fn calculate_orbital_velocity(&self, planet_mass: f32, orbital_radius: f32) -> f32 {
-        (GameConstants::GRAVITATIONAL_CONSTANT * planet_mass / orbital_radius).sqrt()
+        (GameConstants::G * planet_mass / orbital_radius).sqrt()
     }
 
     fn calculate_orbital_period(&self, planet_mass: f32, orbital_radius: f32) -> f32 {
-        2.0 * PI * (orbital_radius.powi(3) / (GameConstants::GRAVITATIONAL_CONSTANT * planet_mass)).sqrt()
+        2.0 * PI * (orbital_radius.powi(3) / (GameConstants::G * planet_mass)).sqrt()
     }
 
     fn estimate_eccentricity(
@@ -409,7 +409,7 @@ impl OrbitMaintenance {
         let r_mag = vector_helper::magnitude(r);
         let v_mag = vector_helper::magnitude(velocity);
 
-        let mu = GameConstants::GRAVITATIONAL_CONSTANT * planet_mass;
+        let mu = GameConstants::G * planet_mass;
 
         // Specific orbital energy
         let energy = (v_mag * v_mag) / 2.0 - mu / r_mag;

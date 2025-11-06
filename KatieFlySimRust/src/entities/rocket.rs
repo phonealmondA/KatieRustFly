@@ -204,6 +204,29 @@ impl Rocket {
     pub fn current_transfer_rate(&self) -> f32 {
         self.fuel_transfer_rate
     }
+
+    // === Position and Velocity Accessors ===
+
+    pub fn position(&self) -> Vec2 {
+        self.data.position
+    }
+
+    pub fn velocity(&self) -> Vec2 {
+        self.data.velocity
+    }
+
+    pub fn set_velocity(&mut self, velocity: Vec2) {
+        self.data.velocity = velocity;
+    }
+
+    pub fn set_position(&mut self, position: Vec2) {
+        self.data.position = position;
+    }
+
+    /// Current mass including fuel
+    pub fn current_mass(&self) -> f32 {
+        self.mass
+    }
 }
 
 impl GameObject for Rocket {
