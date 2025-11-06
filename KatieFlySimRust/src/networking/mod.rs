@@ -9,5 +9,5 @@ pub use network_manager::{
     NetworkManager, NetworkRole, NetworkMessage, NetworkError,
     NetworkStats, PlayerStateData, GameStateSnapshot,
 };
-pub use multiplayer_host::MultiplayerHost;
+pub use multiplayer_host::{MultiplayerHost, HostEvent};
 pub use multiplayer_client::MultiplayerClient;

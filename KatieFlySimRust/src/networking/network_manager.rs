@@ -170,31 +170,37 @@ impl NetworkManager {
     }
 
     /// Send message through TCP stream
-    async fn send_message_async(
-        stream: &mut TcpStream,
+    pub async fn send_message_async<W>(
+        writer: &mut W,
         message: &NetworkMessage,
-    ) -> Result<(), NetworkError> {
+    ) -> Result<(), NetworkError>
+    where
+        W: AsyncWriteExt + Unpin,
+    {
         let data = Self::serialize_message(message)?;
         let len = data.len() as u32;
 
         // Send length prefix (4 bytes)
-        stream.write_all(&len.to_be_bytes()).await
+        writer.write_all(&len.to_be_bytes()).await
             .map_err(|e| NetworkError::ConnectionFailed(e.to_string()))?;
 
         // Send message data
-        stream.write_all(&data).await
+        writer.write_all(&data).await
             .map_err(|e| NetworkError::ConnectionFailed(e.to_string()))?;
 
         Ok(())
     }
 
     /// Receive message from TCP stream
-    async fn receive_message_async(
-        stream: &mut TcpStream,
-    ) -> Result<NetworkMessage, NetworkError> {
+    pub async fn receive_message_async<R>(
+        reader: &mut R,
+    ) -> Result<NetworkMessage, NetworkError>
+    where
+        R: AsyncReadExt + Unpin,
+    {
         // Read length prefix (4 bytes)
         let mut len_bytes = [0u8; 4];
-        stream.read_exact(&mut len_bytes).await
+        reader.read_exact(&mut len_bytes).await
             .map_err(|_| NetworkError::Disconnected)?;
         let len = u32::from_be_bytes(len_bytes) as usize;
 
@@ -205,7 +211,7 @@ impl NetworkManager {
 
         // Read message data
         let mut data = vec![0u8; len];
-        stream.read_exact(&mut data).await
+        reader.read_exact(&mut data).await
             .map_err(|_| NetworkError::Disconnected)?;
 
         Self::deserialize_message(&data)
