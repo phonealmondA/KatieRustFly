@@ -68,12 +68,25 @@ impl SinglePlayerGame {
             GameConstants::MAIN_PLANET_MASS,
             BLUE,
         );
+        log::info!("Main planet: pos=({}, {}), radius={}, mass={}",
+            GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y,
+            GameConstants::MAIN_PLANET_RADIUS, GameConstants::MAIN_PLANET_MASS);
         self.world.add_planet(main_planet);
 
         // Create secondary planet (like Moon)
+        let moon_x = *crate::game_constants::SECONDARY_PLANET_X;
+        let moon_y = *crate::game_constants::SECONDARY_PLANET_Y;
+        let moon_radius = GameConstants::SECONDARY_PLANET_RADIUS;
+        let moon_velocity = *crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY;
+
+        log::info!("Moon: pos=({}, {}), radius={}, mass={}, velocity={}",
+            moon_x, moon_y, moon_radius, GameConstants::SECONDARY_PLANET_MASS, moon_velocity);
+        log::info!("Distance from main planet: {}",
+            ((moon_x - GameConstants::MAIN_PLANET_X).powi(2) + (moon_y - GameConstants::MAIN_PLANET_Y).powi(2)).sqrt());
+
         let mut secondary_planet = Planet::new(
-            Vec2::new(*crate::game_constants::SECONDARY_PLANET_X, *crate::game_constants::SECONDARY_PLANET_Y),
-            GameConstants::SECONDARY_PLANET_RADIUS,
+            Vec2::new(moon_x, moon_y),
+            moon_radius,
             GameConstants::SECONDARY_PLANET_MASS,
             Color::from_rgba(150, 150, 150, 255),
         );
@@ -81,7 +94,7 @@ impl SinglePlayerGame {
         // Set orbital velocity for secondary planet
         secondary_planet.set_velocity(Vec2::new(
             0.0,
-            -*crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY,
+            -moon_velocity,
         ));
 
         self.world.add_planet(secondary_planet);
