@@ -216,28 +216,39 @@ impl World {
             satellite.update(delta_time);
         }
 
-        // Check for collisions between rockets and planets
-        let mut rockets_to_remove = Vec::new();
+        // Check for collisions/landings between rockets and planets
+        let mut rockets_to_land = Vec::new();
         for (rocket_id, rocket) in &self.rockets {
-            for planet in self.planets.values() {
+            // Skip if already landed
+            if rocket.is_landed() {
+                continue;
+            }
+
+            for (planet_id, planet) in &self.planets {
                 let distance = (rocket.position() - planet.position()).length();
                 // Rocket size is approximately 10 units (from rendering), add small buffer
                 let rocket_radius = 12.0;
                 if distance < planet.radius() + rocket_radius {
-                    rockets_to_remove.push(*rocket_id);
-                    log::info!("Rocket {} crashed into planet at distance {:.1}", rocket_id, distance);
-                    break;
+                    // Check if rocket is moving towards planet (to prevent re-landing after takeoff)
+                    let direction_to_planet = (planet.position() - rocket.position()).normalize();
+                    let velocity_towards_planet = rocket.velocity().dot(direction_to_planet);
+
+                    // Only land if moving towards planet or moving very slowly
+                    if velocity_towards_planet >= -1.0 {
+                        // Calculate surface position (normalize direction and place on surface)
+                        let direction = (rocket.position() - planet.position()).normalize();
+                        let surface_position = planet.position() + direction * planet.radius();
+                        rockets_to_land.push((*rocket_id, *planet_id, surface_position));
+                        break;
+                    }
                 }
             }
         }
 
-        // Remove crashed rockets
-        for rocket_id in rockets_to_remove {
-            self.rockets.remove(&rocket_id);
-            // If this was the active rocket, clear it
-            if self.active_rocket_id == Some(rocket_id) {
-                self.active_rocket_id = None;
-                log::info!("Active rocket crashed! No active rocket.");
+        // Land rockets on planets
+        for (rocket_id, planet_id, surface_position) in rockets_to_land {
+            if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                rocket.land_on_planet(planet_id, surface_position);
             }
         }
 
@@ -384,18 +395,18 @@ mod tests {
     }
 
     #[test]
-    fn test_rocket_planet_collision() {
+    fn test_rocket_planet_landing() {
         let mut world = World::new();
 
         // Add a planet at origin with radius 50
-        world.add_planet(Planet::new(
+        let planet_id = world.add_planet(Planet::new(
             Vec2::new(0.0, 0.0),
             50.0,
             10000.0,
             BLUE,
         ));
 
-        // Add a rocket very close to planet surface (should collide)
+        // Add a rocket very close to planet surface (should land)
         let rocket_id = world.add_rocket(Rocket::new(
             Vec2::new(55.0, 0.0), // Just 5 units from surface, rocket radius is 12
             Vec2::new(0.0, 0.0),
@@ -404,12 +415,17 @@ mod tests {
         ));
 
         assert_eq!(world.rocket_count(), 1);
+        assert!(!world.get_rocket(rocket_id).unwrap().is_landed());
 
-        // Update should detect collision and remove rocket
+        // Update should detect collision and land rocket
         world.update(0.016);
 
-        assert_eq!(world.rocket_count(), 0);
-        assert_eq!(world.active_rocket_id(), None);
+        // Rocket should still exist but be landed
+        assert_eq!(world.rocket_count(), 1);
+        let rocket = world.get_rocket(rocket_id).unwrap();
+        assert!(rocket.is_landed());
+        assert_eq!(rocket.landed_on_planet_id(), Some(planet_id));
+        assert_eq!(rocket.velocity(), Vec2::ZERO);
     }
 
     #[test]
@@ -451,8 +467,8 @@ mod tests {
             BLUE,
         ));
 
-        // Add a rocket far from planet (should not collide)
-        world.add_rocket(Rocket::new(
+        // Add a rocket far from planet (should not land)
+        let rocket_id = world.add_rocket(Rocket::new(
             Vec2::new(200.0, 0.0), // Well away from planet
             Vec2::new(0.0, 0.0),
             WHITE,
@@ -461,9 +477,48 @@ mod tests {
 
         assert_eq!(world.rocket_count(), 1);
 
-        // Update should not remove rocket
+        // Update should not land rocket
         world.update(0.016);
 
         assert_eq!(world.rocket_count(), 1);
+        assert!(!world.get_rocket(rocket_id).unwrap().is_landed());
+    }
+
+    #[test]
+    fn test_rocket_takeoff_from_planet() {
+        let mut world = World::new();
+
+        // Add a planet
+        let planet_id = world.add_planet(Planet::new(
+            Vec2::new(0.0, 0.0),
+            50.0,
+            10000.0,
+            BLUE,
+        ));
+
+        // Add a rocket and land it manually
+        let mut rocket = Rocket::new(
+            Vec2::new(55.0, 0.0),
+            Vec2::new(0.0, 0.0),
+            WHITE,
+            1.0,
+        );
+        rocket.add_fuel(100.0); // Add fuel for takeoff
+        let rocket_id = world.add_rocket(rocket);
+
+        // Land the rocket
+        world.update(0.016);
+        assert!(world.get_rocket(rocket_id).unwrap().is_landed());
+
+        // Apply thrust to take off
+        world.set_rocket_thrust(rocket_id, true);
+
+        // Update should trigger takeoff
+        world.update(0.016);
+
+        // Rocket should no longer be landed
+        let rocket = world.get_rocket(rocket_id).unwrap();
+        assert!(!rocket.is_landed());
+        assert_eq!(rocket.landed_on_planet_id(), None);
     }
 }

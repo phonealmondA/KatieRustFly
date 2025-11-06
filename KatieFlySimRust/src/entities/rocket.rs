@@ -28,6 +28,10 @@ pub struct Rocket {
     is_transferring_fuel_out: bool,
     fuel_transfer_rate: f32,
 
+    // Landing state
+    landed: bool,
+    landed_on_planet_id: Option<usize>,
+
     // Rocket parts (engines, etc.) - simplified for now
     // parts: Vec<Box<dyn RocketPart>>, // Will add later
 }
@@ -52,6 +56,8 @@ impl Rocket {
             is_transferring_fuel_in: false,
             is_transferring_fuel_out: false,
             fuel_transfer_rate: 0.0,
+            landed: false,
+            landed_on_planet_id: None,
         }
     }
 
@@ -227,10 +233,55 @@ impl Rocket {
     pub fn current_mass(&self) -> f32 {
         self.mass
     }
+
+    // === Landing State ===
+
+    /// Check if rocket is landed on a planet
+    pub fn is_landed(&self) -> bool {
+        self.landed
+    }
+
+    /// Get the planet ID this rocket is landed on
+    pub fn landed_on_planet_id(&self) -> Option<usize> {
+        self.landed_on_planet_id
+    }
+
+    /// Land the rocket on a planet
+    pub fn land_on_planet(&mut self, planet_id: usize, surface_position: Vec2) {
+        self.landed = true;
+        self.landed_on_planet_id = Some(planet_id);
+        self.data.position = surface_position;
+        self.data.velocity = Vec2::ZERO;
+        self.thrust_level = 0.0;
+        self.is_currently_thrusting = false;
+        log::info!("Rocket landed on planet {} at position ({:.1}, {:.1})",
+            planet_id, surface_position.x, surface_position.y);
+    }
+
+    /// Take off from a planet
+    pub fn take_off(&mut self) {
+        if self.landed {
+            self.landed = false;
+            self.landed_on_planet_id = None;
+            log::info!("Rocket taking off!");
+        }
+    }
 }
 
 impl GameObject for Rocket {
     fn update(&mut self, delta_time: f32) {
+        // If landed, check for thrust to take off
+        if self.landed {
+            if self.thrust_level > 0.0 && self.can_thrust() {
+                self.take_off();
+                // Apply initial thrust for takeoff
+                self.apply_thrust(self.thrust_level * delta_time);
+                self.consume_fuel(delta_time);
+            }
+            // Don't update position or physics while landed
+            return;
+        }
+
         // Apply thrust if thrust level is set
         if self.thrust_level > 0.0 {
             self.apply_thrust(self.thrust_level * delta_time);
