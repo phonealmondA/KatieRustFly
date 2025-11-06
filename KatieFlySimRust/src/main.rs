@@ -183,7 +183,7 @@ async fn main() {
             }
 
             GameState::Playing | GameState::Paused => {
-                if let Some(ref game) = single_player_game {
+                if let Some(ref mut game) = single_player_game {
                     game.render();
                 }
             }
