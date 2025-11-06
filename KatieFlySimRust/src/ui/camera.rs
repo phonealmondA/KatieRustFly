@@ -40,8 +40,9 @@ impl Camera {
 
     /// Update camera (smooth zoom and follow)
     pub fn update(&mut self, delta_time: f32) {
-        // Smooth zoom
-        if (self.zoom_level - self.target_zoom).abs() > 0.000001 {
+        // Smooth zoom - use relative threshold since zoom can vary widely
+        let threshold = self.target_zoom * 0.001; // 0.1% of target zoom
+        if (self.zoom_level - self.target_zoom).abs() > threshold {
             let zoom_delta = (self.target_zoom - self.zoom_level) * self.zoom_speed * delta_time;
             self.zoom_level += zoom_delta;
 
@@ -65,7 +66,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(0.00001).min(10.0); // Clamp zoom (0.00001 = 100,000x zoom out, 10.0 = 10x zoom in)
+        self.target_zoom = zoom.max(0.1).min(100000.0); // Clamp zoom (0.1 = zoomed in, 100000.0 = massively zoomed out)
     }
 
     /// Adjust zoom by a delta
@@ -164,11 +165,11 @@ mod tests {
     fn test_zoom_clamping() {
         let mut camera = Camera::new(Vec2::new(1920.0, 1080.0));
 
-        camera.set_target_zoom(20.0); // Too high
-        assert_eq!(camera.target_zoom, 10.0);
+        camera.set_target_zoom(200000.0); // Too high (too zoomed out)
+        assert_eq!(camera.target_zoom, 100000.0);
 
-        camera.set_target_zoom(0.000001); // Too low
-        assert_eq!(camera.target_zoom, 0.00001);
+        camera.set_target_zoom(0.01); // Too low (too zoomed in)
+        assert_eq!(camera.target_zoom, 0.1);
     }
 
     #[test]

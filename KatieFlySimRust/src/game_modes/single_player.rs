@@ -245,12 +245,13 @@ impl SinglePlayerGame {
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
         }
 
-        // Keyboard zoom controls (Q = zoom out, E = zoom in)
+        // Keyboard zoom controls (E = zoom out, Q = zoom in)
+        // Note: zoom_scale = 1/zoom_level, so larger zoom_level = more zoomed out
         if is_key_down(KeyCode::Q) {
-            self.camera.adjust_zoom(-0.02); // Gradual zoom out
+            self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
         }
         if is_key_down(KeyCode::E) {
-            self.camera.adjust_zoom(0.02); // Gradual zoom in
+            self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
         }
 
         SinglePlayerResult::Continue
@@ -461,8 +462,8 @@ impl SinglePlayerGame {
                 ("SPACE", "Thrust"),
                 ("A / LEFT", "Rotate right"),
                 ("D / RIGHT", "Rotate left"),
-                ("Q", "Zoom out"),
-                ("E", "Zoom in"),
+                ("Q", "Zoom in"),
+                ("E", "Zoom out"),
                 ("MOUSE WHEEL", "Zoom"),
                 ("L", "Convert to satellite"),
                 ("T", "Launch new rocket"),
