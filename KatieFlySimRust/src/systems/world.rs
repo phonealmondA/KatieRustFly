@@ -216,6 +216,51 @@ impl World {
             satellite.update(delta_time);
         }
 
+        // Check for collisions between rockets and planets
+        let mut rockets_to_remove = Vec::new();
+        for (rocket_id, rocket) in &self.rockets {
+            for planet in self.planets.values() {
+                let distance = (rocket.position() - planet.position()).length();
+                // Rocket size is approximately 10 units (from rendering), add small buffer
+                let rocket_radius = 12.0;
+                if distance < planet.radius() + rocket_radius {
+                    rockets_to_remove.push(*rocket_id);
+                    log::info!("Rocket {} crashed into planet at distance {:.1}", rocket_id, distance);
+                    break;
+                }
+            }
+        }
+
+        // Remove crashed rockets
+        for rocket_id in rockets_to_remove {
+            self.rockets.remove(&rocket_id);
+            // If this was the active rocket, clear it
+            if self.active_rocket_id == Some(rocket_id) {
+                self.active_rocket_id = None;
+                log::info!("Active rocket crashed! No active rocket.");
+            }
+        }
+
+        // Check for collisions between satellites and planets
+        let mut satellites_to_remove = Vec::new();
+        for (satellite_id, satellite) in &self.satellites {
+            for planet in self.planets.values() {
+                let distance = (satellite.position() - planet.position()).length();
+                // Satellite size is approximately 5 units (from rendering)
+                let satellite_radius = 7.0;
+                if distance < planet.radius() + satellite_radius {
+                    satellites_to_remove.push(*satellite_id);
+                    log::info!("Satellite {} crashed into planet at distance {:.1}", satellite_id, distance);
+                    break;
+                }
+            }
+        }
+
+        // Remove crashed satellites
+        for satellite_id in satellites_to_remove {
+            self.satellites.remove(&satellite_id);
+        }
+
         // TODO: Apply planet-to-planet gravity
         // TODO: Apply rocket-to-rocket gravity
     }
@@ -336,5 +381,89 @@ mod tests {
         assert!(satellite_id.is_some());
         assert_eq!(world.rocket_count(), 0);
         assert_eq!(world.satellite_count(), 1);
+    }
+
+    #[test]
+    fn test_rocket_planet_collision() {
+        let mut world = World::new();
+
+        // Add a planet at origin with radius 50
+        world.add_planet(Planet::new(
+            Vec2::new(0.0, 0.0),
+            50.0,
+            10000.0,
+            BLUE,
+        ));
+
+        // Add a rocket very close to planet surface (should collide)
+        let rocket_id = world.add_rocket(Rocket::new(
+            Vec2::new(55.0, 0.0), // Just 5 units from surface, rocket radius is 12
+            Vec2::new(0.0, 0.0),
+            WHITE,
+            1.0,
+        ));
+
+        assert_eq!(world.rocket_count(), 1);
+
+        // Update should detect collision and remove rocket
+        world.update(0.016);
+
+        assert_eq!(world.rocket_count(), 0);
+        assert_eq!(world.active_rocket_id(), None);
+    }
+
+    #[test]
+    fn test_satellite_planet_collision() {
+        let mut world = World::new();
+
+        // Add a planet at origin with radius 50
+        world.add_planet(Planet::new(
+            Vec2::new(0.0, 0.0),
+            50.0,
+            10000.0,
+            BLUE,
+        ));
+
+        // Add a satellite very close to planet surface (should collide)
+        world.add_satellite(Satellite::new(
+            Vec2::new(52.0, 0.0), // Just 2 units from surface, satellite radius is 7
+            Vec2::new(0.0, 0.0),
+            GREEN,
+        ));
+
+        assert_eq!(world.satellite_count(), 1);
+
+        // Update should detect collision and remove satellite
+        world.update(0.016);
+
+        assert_eq!(world.satellite_count(), 0);
+    }
+
+    #[test]
+    fn test_no_collision_when_far_from_planet() {
+        let mut world = World::new();
+
+        // Add a planet at origin with radius 50
+        world.add_planet(Planet::new(
+            Vec2::new(0.0, 0.0),
+            50.0,
+            10000.0,
+            BLUE,
+        ));
+
+        // Add a rocket far from planet (should not collide)
+        world.add_rocket(Rocket::new(
+            Vec2::new(200.0, 0.0), // Well away from planet
+            Vec2::new(0.0, 0.0),
+            WHITE,
+            1.0,
+        ));
+
+        assert_eq!(world.rocket_count(), 1);
+
+        // Update should not remove rocket
+        world.update(0.016);
+
+        assert_eq!(world.rocket_count(), 1);
     }
 }
