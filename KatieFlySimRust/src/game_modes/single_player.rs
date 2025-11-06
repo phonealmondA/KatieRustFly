@@ -370,15 +370,40 @@ impl SinglePlayerGame {
         // Render world
         self.world.render();
 
+        // Get all planets for trajectory calculations
+        let all_planets: Vec<&Planet> = self.world.planets().collect();
+
+        // Draw moon trajectory (if moon exists - it's the second planet)
+        // Moon has ORBIT_PERIOD = 420 seconds, so with 0.5s steps we need 840 steps for full orbit
+        if all_planets.len() >= 2 {
+            let moon = all_planets[1]; // Second planet is the moon
+            let earth_only: Vec<&Planet> = vec![all_planets[0]]; // First planet is Earth
+
+            let (moon_trajectory, moon_orbit_closes) = self.trajectory_predictor.predict_planet_trajectory(
+                moon,
+                &earth_only,
+                0.5,
+                840, // 420 seconds / 0.5s per step = 840 steps for full orbit
+                true,
+            );
+
+            // Draw moon trajectory in cyan/light blue
+            let moon_color = if moon_orbit_closes {
+                Color::new(0.0, 0.8, 1.0, 0.6) // Bright cyan if orbit closes
+            } else {
+                Color::new(0.5, 0.5, 1.0, 0.6) // Light purple if orbit doesn't close
+            };
+
+            self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes);
+        }
+
         // Draw trajectory prediction for active rocket
         if let Some(rocket) = self.world.get_active_rocket() {
-            // Get all planets for gravity calculation
-            let planets: Vec<&Planet> = self.world.planets().collect();
-
             // Predict trajectory (0.5 second steps, 200 steps = 100 seconds)
+            // Pass ALL planets so rocket trajectory accounts for both Earth and Moon
             let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
                 rocket,
-                &planets,
+                &all_planets,
                 0.5,
                 200,
                 true,

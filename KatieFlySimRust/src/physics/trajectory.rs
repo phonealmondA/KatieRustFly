@@ -94,6 +94,75 @@ impl TrajectoryPredictor {
         (points, self_intersects)
     }
 
+    /// Predict trajectory for a planet (e.g., moon orbiting Earth)
+    ///
+    /// # Arguments
+    /// * `planet` - The planet to predict trajectory for
+    /// * `other_planets` - All other planets affecting gravity (excluding the planet itself)
+    /// * `time_step` - Time step for simulation (default: 0.5 seconds)
+    /// * `steps` - Number of steps to predict (default: 840 for full orbit)
+    /// * `detect_self_intersection` - Check if trajectory intersects itself (orbit closes)
+    ///
+    /// # Returns
+    /// Vector of trajectory points and whether it self-intersects (completes orbit)
+    pub fn predict_planet_trajectory(
+        &mut self,
+        planet: &Planet,
+        other_planets: &[&Planet],
+        time_step: f32,
+        steps: usize,
+        detect_self_intersection: bool,
+    ) -> (Vec<TrajectoryPoint>, bool) {
+        let mut points = Vec::with_capacity(steps);
+        let mut self_intersects = false;
+
+        // Start with current planet state
+        let mut position = planet.position();
+        let mut velocity = planet.velocity();
+        let mut time = 0.0;
+
+        // Simulate forward in time
+        for _ in 0..steps {
+            points.push(TrajectoryPoint {
+                position,
+                velocity,
+                time,
+            });
+
+            // Apply gravity forces from other planets
+            let mut acceleration = Vec2::ZERO;
+            for other_planet in other_planets {
+                let direction = other_planet.position() - position;
+                let distance = vector_helper::magnitude(direction);
+
+                if distance > other_planet.radius() {
+                    let force_vec = self.gravity_simulator.calculate_gravitational_force(
+                        position,
+                        planet.mass(),
+                        other_planet.position(),
+                        other_planet.mass(),
+                    );
+                    acceleration += force_vec / planet.mass();
+                }
+            }
+
+            // Update velocity and position
+            velocity += acceleration * time_step;
+            position += velocity * time_step;
+            time += time_step;
+
+            // Check for self-intersection if requested (orbit completion)
+            if detect_self_intersection && points.len() > 20 {
+                if self.check_intersection(&points, position) {
+                    self_intersects = true;
+                    break;
+                }
+            }
+        }
+
+        (points, self_intersects)
+    }
+
     /// Check if a position intersects with previous trajectory
     fn check_intersection(&self, points: &[TrajectoryPoint], position: Vec2) -> bool {
         // Only check against points that are far enough back in time
