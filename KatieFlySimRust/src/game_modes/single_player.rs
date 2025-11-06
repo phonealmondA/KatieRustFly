@@ -239,10 +239,10 @@ impl SinglePlayerGame {
 
         // Rotation controls
         if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
-            rotation_delta = -3.0; // degrees per frame
+            rotation_delta = 3.0; // degrees per frame
         }
         if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
-            rotation_delta = 3.0;
+            rotation_delta = -3.0;
         }
 
         // Convert degrees to radians
