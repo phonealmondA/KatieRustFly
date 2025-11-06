@@ -40,7 +40,7 @@ impl GameConstants {
 
     // ==================== Fuel System Constants ====================
     pub const ROCKET_MAX_FUEL: f32 = 100.0;
-    pub const ROCKET_STARTING_FUEL: f32 = 0.0;
+    pub const ROCKET_STARTING_FUEL: f32 = 100.0;
 
     // Manual fuel transfer
     pub const MANUAL_FUEL_TRANSFER_RATE: f32 = 10.0;
@@ -70,8 +70,8 @@ impl GameConstants {
     pub const TRAJECTORY_COLLISION_RADIUS: f32 = 0.5;
 
     // ==================== Engine Parameters ====================
-    pub const BASE_THRUST_MULTIPLIER: f32 = 10000000000.0;
-    pub const ENGINE_THRUST_POWER: f32 = Self::G * Self::BASE_THRUST_MULTIPLIER;
+    pub const BASE_THRUST_MULTIPLIER: f32 = 1000.0;
+    pub const ENGINE_THRUST_POWER: f32 = Self::BASE_THRUST_MULTIPLIER;
 
     // ==================== Vehicle Transformation ====================
     pub const TRANSFORM_VELOCITY_FACTOR: f32 = 0.1;
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_fuel_constants() {
         assert_eq!(GameConstants::ROCKET_MAX_FUEL, 100.0);
-        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 0.0);
+        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 100.0);
         assert!(GameConstants::ROCKET_STARTING_FUEL <= GameConstants::ROCKET_MAX_FUEL);
     }
 }

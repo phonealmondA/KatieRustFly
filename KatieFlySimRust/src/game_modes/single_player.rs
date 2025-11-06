@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 
 use crate::entities::{GameObject, Planet, Rocket};
 use crate::game_constants::GameConstants;
+use crate::physics::TrajectoryPredictor;
 use crate::save_system::{GameSaveData, SavedCamera};
 use crate::systems::World;
 use crate::ui::{Camera, Hud};
@@ -22,6 +23,7 @@ pub struct SinglePlayerGame {
     world: World,
     camera: Camera,
     hud: Hud,
+    trajectory_predictor: TrajectoryPredictor,
     game_time: f32,
     is_paused: bool,
 
@@ -41,6 +43,7 @@ impl SinglePlayerGame {
             world: World::new(),
             camera: Camera::new(window_size),
             hud: Hud::new(Vec2::new(10.0, 10.0)),
+            trajectory_predictor: TrajectoryPredictor::new(),
             game_time: 0.0,
             is_paused: false,
             thrust_input: 0.0,
@@ -286,12 +289,36 @@ impl SinglePlayerGame {
     }
 
     /// Render the game
-    pub fn render(&self) {
+    pub fn render(&mut self) {
         // Set camera view
         set_camera(self.camera.camera());
 
         // Render world
         self.world.render();
+
+        // Draw trajectory prediction for active rocket
+        if let Some(rocket) = self.world.get_active_rocket() {
+            // Get all planets for gravity calculation
+            let planets: Vec<&Planet> = self.world.planets().collect();
+
+            // Predict trajectory (0.5 second steps, 200 steps = 100 seconds)
+            let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
+                rocket,
+                &planets,
+                0.5,
+                200,
+                true,
+            );
+
+            // Draw trajectory with color based on whether it self-intersects (completes orbit)
+            let trajectory_color = if self_intersects {
+                Color::new(0.0, 1.0, 0.0, 0.7) // Green if orbit closes
+            } else {
+                Color::new(1.0, 1.0, 0.0, 0.7) // Yellow if orbit is open
+            };
+
+            self.trajectory_predictor.draw_trajectory(&trajectory_points, trajectory_color, self_intersects);
+        }
 
         // Reset to default camera for HUD
         set_default_camera();

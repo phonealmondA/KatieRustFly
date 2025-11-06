@@ -161,10 +161,12 @@ impl Rocket {
 
         self.is_currently_thrusting = true;
 
-        // Calculate thrust direction
+        // Calculate thrust direction (opposite the rocket's nose)
+        // Rocket nose points in direction (sin(rotation), -cos(rotation))
+        // Thrust points opposite: (-sin(rotation), cos(rotation))
         let thrust_direction = Vec2::new(
+            -self.rotation.sin(),
             self.rotation.cos(),
-            self.rotation.sin(),
         );
 
         // Apply thrust force
@@ -270,6 +272,9 @@ impl Rocket {
 
 impl GameObject for Rocket {
     fn update(&mut self, delta_time: f32) {
+        // Track if we just took off this frame to avoid double-applying thrust
+        let mut just_took_off = false;
+
         // If landed, check for thrust to take off
         if self.landed {
             if self.thrust_level > 0.0 && self.can_thrust() {
@@ -277,16 +282,19 @@ impl GameObject for Rocket {
                 // Apply initial thrust for takeoff
                 self.apply_thrust(self.thrust_level * delta_time);
                 self.consume_fuel(delta_time);
+                just_took_off = true;
+                // Continue to update position after takeoff (don't return)
+            } else {
+                // Don't update position or physics while landed
+                return;
             }
-            // Don't update position or physics while landed
-            return;
         }
 
-        // Apply thrust if thrust level is set
-        if self.thrust_level > 0.0 {
+        // Apply thrust if thrust level is set and didn't just take off
+        if self.thrust_level > 0.0 && !just_took_off {
             self.apply_thrust(self.thrust_level * delta_time);
             self.consume_fuel(delta_time);
-        } else {
+        } else if !just_took_off {
             self.is_currently_thrusting = false;
         }
 
@@ -370,8 +378,10 @@ mod tests {
             GameConstants::ROCKET_BASE_MASS,
         );
 
+        // Rocket starts with ROCKET_STARTING_FUEL, already at max (100)
+        // Adding 50 more should clamp to max
         rocket.add_fuel(50.0);
-        assert_relative_eq!(rocket.current_fuel(), GameConstants::ROCKET_STARTING_FUEL + 50.0, epsilon = 0.01);
+        assert_relative_eq!(rocket.current_fuel(), GameConstants::ROCKET_MAX_FUEL, epsilon = 0.01);
     }
 
     #[test]
@@ -401,7 +411,11 @@ mod tests {
             GameConstants::ROCKET_BASE_MASS,
         );
 
+        // Rocket starts with full fuel (100), set it lower first
+        rocket.set_fuel(80.0);
         let initial_mass = rocket.mass();
+
+        // Now add 10 fuel
         rocket.add_fuel(10.0);
         assert_relative_eq!(rocket.mass(), initial_mass + 10.0, epsilon = 0.01);
     }
