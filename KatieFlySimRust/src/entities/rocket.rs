@@ -161,12 +161,12 @@ impl Rocket {
 
         self.is_currently_thrusting = true;
 
-        // Calculate thrust direction (opposite the rocket's nose)
+        // Calculate thrust direction (in the direction the rocket nose points)
         // Rocket nose points in direction (sin(rotation), -cos(rotation))
-        // Thrust points opposite: (-sin(rotation), cos(rotation))
+        // Thrust points in same direction: (sin(rotation), -cos(rotation))
         let thrust_direction = Vec2::new(
-            -self.rotation.sin(),
-            self.rotation.cos(),
+            self.rotation.sin(),
+            -self.rotation.cos(),
         );
 
         // Apply thrust force
