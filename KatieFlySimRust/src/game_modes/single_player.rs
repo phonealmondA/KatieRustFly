@@ -387,6 +387,9 @@ impl SinglePlayerGame {
                 true,
             );
 
+            log::debug!("Moon trajectory: {} points, orbit closes: {}",
+                moon_trajectory.len(), moon_orbit_closes);
+
             // Draw moon trajectory in cyan/light blue
             let moon_color = if moon_orbit_closes {
                 Color::new(0.0, 0.8, 1.0, 0.6) // Bright cyan if orbit closes
@@ -395,6 +398,9 @@ impl SinglePlayerGame {
             };
 
             self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes);
+            log::debug!("Drew moon trajectory in color: {:?}", moon_color);
+        } else {
+            log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
         }
 
         // Draw trajectory prediction for active rocket

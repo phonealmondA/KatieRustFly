@@ -189,7 +189,7 @@ impl TrajectoryPredictor {
             return;
         }
 
-        // Draw lines between points
+        // Draw lines between points with thicker lines for better visibility when zoomed out
         for i in 0..points.len() - 1 {
             let p1 = points[i].position;
             let p2 = points[i + 1].position;
@@ -198,7 +198,8 @@ impl TrajectoryPredictor {
             let alpha = 1.0 - (i as f32 / points.len() as f32) * 0.7;
             let fade_color = Color::new(color.r, color.g, color.b, color.a * alpha);
 
-            draw_line(p1.x, p1.y, p2.x, p2.y, 2.0, fade_color);
+            // Increased from 2.0 to 8.0 for better visibility when zoomed out
+            draw_line(p1.x, p1.y, p2.x, p2.y, 8.0, fade_color);
         }
 
         // Draw intersection warning if detected
@@ -207,7 +208,7 @@ impl TrajectoryPredictor {
                 draw_circle(
                     last_point.position.x,
                     last_point.position.y,
-                    15.0,
+                    60.0, // Increased from 15.0 for better visibility
                     Color::new(1.0, 0.0, 0.0, 0.5),
                 );
             }
@@ -216,7 +217,8 @@ impl TrajectoryPredictor {
         // Draw markers at intervals
         for (i, point) in points.iter().enumerate() {
             if i % 20 == 0 {
-                draw_circle(point.position.x, point.position.y, 3.0, color);
+                // Increased from 3.0 to 12.0 for better visibility when zoomed out
+                draw_circle(point.position.x, point.position.y, 12.0, color);
             }
         }
     }
