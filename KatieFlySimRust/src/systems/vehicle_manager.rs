@@ -96,6 +96,7 @@ impl VehicleManager {
                 Color::new(0.0, 1.0, 1.0, 0.6), // Cyan
                 self_intersects,
                 zoom_level,
+                None, // No fixed markers for vehicle manager trajectories
             );
 
             // Draw intersection warning

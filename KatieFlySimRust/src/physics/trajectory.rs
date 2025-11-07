@@ -377,12 +377,14 @@ impl TrajectoryPredictor {
     /// * `color` - Base color for the trajectory
     /// * `self_intersects` - Whether the trajectory completes an orbit
     /// * `zoom_level` - Current camera zoom level (for scaling line thickness)
+    /// * `fixed_markers` - Optional fixed marker positions (for locked trajectories)
     pub fn draw_trajectory(
         &self,
         points: &[TrajectoryPoint],
         color: Color,
         self_intersects: bool,
         zoom_level: f32,
+        fixed_markers: Option<&[Vec2]>,
     ) {
         if points.len() < 2 {
             return;
@@ -428,9 +430,17 @@ impl TrajectoryPredictor {
         }
 
         // Draw markers at intervals
-        for (i, point) in points.iter().enumerate() {
-            if i % 20 == 0 {
-                draw_circle(point.position.x, point.position.y, scaled_marker_radius, color);
+        if let Some(markers) = fixed_markers {
+            // Use fixed marker positions (for locked trajectories)
+            for marker_pos in markers {
+                draw_circle(marker_pos.x, marker_pos.y, scaled_marker_radius, color);
+            }
+        } else {
+            // Use index-based markers (for dynamic trajectories)
+            for (i, point) in points.iter().enumerate() {
+                if i % 20 == 0 {
+                    draw_circle(point.position.x, point.position.y, scaled_marker_radius, color);
+                }
             }
         }
     }
@@ -585,7 +595,7 @@ mod tests {
         let points: Vec<TrajectoryPoint> = vec![];
 
         // Should not crash when drawing empty trajectory
-        predictor.draw_trajectory(&points, YELLOW, false, 1.0);
+        predictor.draw_trajectory(&points, YELLOW, false, 1.0, None);
         assert!(true);
     }
 }

@@ -43,6 +43,7 @@ pub struct SinglePlayerGame {
     trajectory_locked: bool, // True when trajectory is fully cached and stable
     current_node_index: usize, // Index of the next node the rocket is traveling toward
     consumed_trajectory_start: usize, // How many nodes have been consumed/passed
+    fixed_marker_positions: Vec<Vec2>, // Fixed world positions of marker nodes when trajectory locks
 
     // Save/load
     current_save_name: Option<String>,
@@ -70,6 +71,7 @@ impl SinglePlayerGame {
             trajectory_locked: false,
             current_node_index: 0,
             consumed_trajectory_start: 0,
+            fixed_marker_positions: Vec::new(),
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -478,7 +480,7 @@ impl SinglePlayerGame {
                 Color::new(0.5, 0.5, 1.0, 0.6) // Light purple if orbit doesn't close
             };
 
-            self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes, zoom_level);
+            self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes, zoom_level, None);
             log::info!("Drew moon trajectory with {} points in color: {:?}", moon_trajectory.len(), moon_color);
         } else {
             log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
@@ -539,7 +541,17 @@ impl SinglePlayerGame {
                 // Fully cached! Lock trajectory and track node-to-node travel
                 if !self.trajectory_locked {
                     self.trajectory_locked = true;
-                    log::info!("Trajectory LOCKED - rocket will follow exact predicted path node-to-node");
+
+                    // Capture fixed marker positions (every 20th point)
+                    self.fixed_marker_positions.clear();
+                    for (i, point) in self.cached_trajectory_nodes.iter().enumerate() {
+                        if i % 20 == 0 {
+                            self.fixed_marker_positions.push(point.position);
+                        }
+                    }
+
+                    log::info!("Trajectory LOCKED - rocket will follow exact predicted path node-to-node ({} fixed markers)",
+                        self.fixed_marker_positions.len());
                 }
 
                 // Track which node the rocket is traveling toward
@@ -679,7 +691,14 @@ impl SinglePlayerGame {
                 Color::new(1.0, 1.0, 0.0, 0.7) // Yellow if orbit is open
             };
 
-            self.trajectory_predictor.draw_trajectory(trajectory_to_draw, trajectory_color, self_intersects, zoom_level);
+            // Pass fixed markers if trajectory is locked, otherwise None
+            let fixed_markers = if self.trajectory_locked && !self.fixed_marker_positions.is_empty() {
+                Some(self.fixed_marker_positions.as_slice())
+            } else {
+                None
+            };
+
+            self.trajectory_predictor.draw_trajectory(trajectory_to_draw, trajectory_color, self_intersects, zoom_level, fixed_markers);
         }
 
         // Reset to default camera for HUD
@@ -829,6 +848,7 @@ impl SinglePlayerGame {
         self.trajectory_locked = false;
         self.current_node_index = 0;
         self.consumed_trajectory_start = 0;
+        self.fixed_marker_positions.clear();
     }
 }
 
