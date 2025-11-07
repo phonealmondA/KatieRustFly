@@ -79,6 +79,7 @@ impl VehicleManager {
         &mut self,
         rocket: &Rocket,
         planets: &[&Planet],
+        zoom_level: f32,
     ) {
         // Draw trajectory prediction
         if self.visualization.show_trajectory {
@@ -94,6 +95,7 @@ impl VehicleManager {
                 &trajectory_points,
                 Color::new(0.0, 1.0, 1.0, 0.6), // Cyan
                 self_intersects,
+                zoom_level,
             );
 
             // Draw intersection warning

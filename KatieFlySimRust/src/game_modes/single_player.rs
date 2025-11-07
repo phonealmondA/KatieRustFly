@@ -373,6 +373,9 @@ impl SinglePlayerGame {
         // Get all planets for trajectory calculations
         let all_planets: Vec<&Planet> = self.world.planets().collect();
 
+        // Get current zoom level for scaling trajectory line thickness
+        let zoom_level = self.camera.zoom_level();
+
         // Draw moon trajectory (if moon exists - it's the second planet)
         // Moon has ORBIT_PERIOD = 420 seconds, so with 0.5s steps we need 840 steps for full orbit
         if all_planets.len() >= 2 {
@@ -397,7 +400,7 @@ impl SinglePlayerGame {
                 Color::new(0.5, 0.5, 1.0, 0.6) // Light purple if orbit doesn't close
             };
 
-            self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes);
+            self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes, zoom_level);
             log::debug!("Drew moon trajectory in color: {:?}", moon_color);
         } else {
             log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
@@ -422,7 +425,7 @@ impl SinglePlayerGame {
                 Color::new(1.0, 1.0, 0.0, 0.7) // Yellow if orbit is open
             };
 
-            self.trajectory_predictor.draw_trajectory(&trajectory_points, trajectory_color, self_intersects);
+            self.trajectory_predictor.draw_trajectory(&trajectory_points, trajectory_color, self_intersects, zoom_level);
         }
 
         // Reset to default camera for HUD

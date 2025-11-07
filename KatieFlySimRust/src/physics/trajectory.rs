@@ -178,18 +178,38 @@ impl TrajectoryPredictor {
         false
     }
 
-    /// Draw trajectory path
+    /// Draw trajectory path with zoom-scaled line thickness
+    ///
+    /// # Arguments
+    /// * `points` - Trajectory points to draw
+    /// * `color` - Base color for the trajectory
+    /// * `self_intersects` - Whether the trajectory completes an orbit
+    /// * `zoom_level` - Current camera zoom level (for scaling line thickness)
     pub fn draw_trajectory(
         &self,
         points: &[TrajectoryPoint],
         color: Color,
         self_intersects: bool,
+        zoom_level: f32,
     ) {
         if points.len() < 2 {
             return;
         }
 
-        // Draw lines between points with thicker lines for better visibility when zoomed out
+        // Scale line thickness with zoom level to maintain visual consistency
+        // Base thickness is 8.0, scaled by zoom_level
+        // When zoom_level = 1.0 (zoomed in), thickness = 8.0
+        // When zoom_level = 100.0 (zoomed out), thickness = 800.0
+        let base_line_thickness = 8.0;
+        let scaled_line_thickness = base_line_thickness * zoom_level;
+
+        let base_marker_radius = 12.0;
+        let scaled_marker_radius = base_marker_radius * zoom_level;
+
+        let base_completion_radius = 60.0;
+        let scaled_completion_radius = base_completion_radius * zoom_level;
+
+        // Draw lines between points with zoom-scaled thickness
         for i in 0..points.len() - 1 {
             let p1 = points[i].position;
             let p2 = points[i + 1].position;
@@ -198,8 +218,7 @@ impl TrajectoryPredictor {
             let alpha = 1.0 - (i as f32 / points.len() as f32) * 0.7;
             let fade_color = Color::new(color.r, color.g, color.b, color.a * alpha);
 
-            // Increased from 2.0 to 8.0 for better visibility when zoomed out
-            draw_line(p1.x, p1.y, p2.x, p2.y, 8.0, fade_color);
+            draw_line(p1.x, p1.y, p2.x, p2.y, scaled_line_thickness, fade_color);
         }
 
         // Draw intersection warning if detected
@@ -208,7 +227,7 @@ impl TrajectoryPredictor {
                 draw_circle(
                     last_point.position.x,
                     last_point.position.y,
-                    60.0, // Increased from 15.0 for better visibility
+                    scaled_completion_radius,
                     Color::new(1.0, 0.0, 0.0, 0.5),
                 );
             }
@@ -217,8 +236,7 @@ impl TrajectoryPredictor {
         // Draw markers at intervals
         for (i, point) in points.iter().enumerate() {
             if i % 20 == 0 {
-                // Increased from 3.0 to 12.0 for better visibility when zoomed out
-                draw_circle(point.position.x, point.position.y, 12.0, color);
+                draw_circle(point.position.x, point.position.y, scaled_marker_radius, color);
             }
         }
     }
@@ -373,7 +391,7 @@ mod tests {
         let points: Vec<TrajectoryPoint> = vec![];
 
         // Should not crash when drawing empty trajectory
-        predictor.draw_trajectory(&points, YELLOW, false);
+        predictor.draw_trajectory(&points, YELLOW, false, 1.0);
         assert!(true);
     }
 }
