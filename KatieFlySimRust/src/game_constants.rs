@@ -73,7 +73,7 @@ impl GameConstants {
     pub const TRAJECTORY_IDLE_EXPAND_SECONDS: f32 = 10.0;  // Time before trajectory auto-expands to full orbit
 
     // ==================== Engine Parameters ====================
-    pub const BASE_THRUST_MULTIPLIER: f32 = 1000.0;
+    pub const BASE_THRUST_MULTIPLIER: f32 = 100000.0;
     pub const ENGINE_THRUST_POWER: f32 = Self::BASE_THRUST_MULTIPLIER;
 
     // ==================== Vehicle Transformation ====================
