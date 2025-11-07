@@ -382,6 +382,12 @@ impl SinglePlayerGame {
             let moon = all_planets[1]; // Second planet is the moon
             let earth_only: Vec<&Planet> = vec![all_planets[0]]; // First planet is Earth
 
+            log::info!("Moon position: ({}, {}), velocity: ({}, {})",
+                moon.position().x, moon.position().y,
+                moon.velocity().x, moon.velocity().y);
+            log::info!("Earth position: ({}, {})",
+                earth_only[0].position().x, earth_only[0].position().y);
+
             let (moon_trajectory, moon_orbit_closes) = self.trajectory_predictor.predict_planet_trajectory(
                 moon,
                 &earth_only,
@@ -390,8 +396,22 @@ impl SinglePlayerGame {
                 true,
             );
 
-            log::debug!("Moon trajectory: {} points, orbit closes: {}",
-                moon_trajectory.len(), moon_orbit_closes);
+            log::info!("Moon trajectory: {} points, orbit closes: {}, zoom_level: {}",
+                moon_trajectory.len(), moon_orbit_closes, zoom_level);
+
+            if !moon_trajectory.is_empty() {
+                log::info!("First trajectory point: ({}, {})",
+                    moon_trajectory[0].position.x, moon_trajectory[0].position.y);
+                if let Some(last) = moon_trajectory.last() {
+                    log::info!("Last trajectory point: ({}, {})",
+                        last.position.x, last.position.y);
+                }
+                // Calculate what the line thickness will be
+                let base_thickness = 8.0;
+                let scaled_thickness = base_thickness * zoom_level.powf(0.8);
+                log::info!("Moon trajectory line thickness: {} (base: {}, zoom: {})",
+                    scaled_thickness, base_thickness, zoom_level);
+            }
 
             // Draw moon trajectory in cyan/light blue
             let moon_color = if moon_orbit_closes {
@@ -401,7 +421,7 @@ impl SinglePlayerGame {
             };
 
             self.trajectory_predictor.draw_trajectory(&moon_trajectory, moon_color, moon_orbit_closes, zoom_level);
-            log::debug!("Drew moon trajectory in color: {:?}", moon_color);
+            log::info!("Drew moon trajectory with {} points in color: {:?}", moon_trajectory.len(), moon_color);
         } else {
             log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
         }
