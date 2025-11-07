@@ -640,6 +640,47 @@ impl SinglePlayerGame {
                             new_cached_count, trajectory_steps,
                             (new_cached_count as f32 / trajectory_steps as f32) * 100.0);
                     }
+
+                    // ORBIT REPETITION DETECTION
+                    // Check if trajectory is repeating (completed one full orbit and starting to loop)
+                    // This allows early locking when a stable orbit is detected
+                    if new_cached_count > 100 && new_cached_count < trajectory_steps {
+                        // Check if recent positions match starting positions (orbit looping)
+                        let check_window = 20; // Check last 20 points against first 20 points
+                        if new_cached_count >= check_window * 2 {
+                            let mut is_repeating = true;
+                            let tolerance = 15.0; // Position must be within 15 units
+
+                            // Compare last N points with first N points
+                            for i in 0..check_window {
+                                let start_pos = self.cached_trajectory_nodes[i].position;
+                                let recent_idx = new_cached_count - check_window + i;
+                                let recent_pos = self.cached_trajectory_nodes[recent_idx].position;
+                                let distance = (start_pos - recent_pos).length();
+
+                                if distance > tolerance {
+                                    is_repeating = false;
+                                    break;
+                                }
+                            }
+
+                            if is_repeating {
+                                // Orbit is repeating! Lock it now, truncate to one complete orbit
+                                log::info!("STABLE ORBIT DETECTED at {} nodes - locking trajectory immediately!", new_cached_count);
+
+                                // Trim trajectory to just the completed orbit (exclude the repeating part)
+                                self.cached_trajectory_nodes.truncate(new_cached_count - check_window);
+
+                                // Force lock by setting count to trajectory_steps
+                                // This will trigger the locking logic in the next frame
+                                while self.cached_trajectory_nodes.len() < trajectory_steps {
+                                    // Pad with last node to reach trajectory_steps
+                                    let last = self.cached_trajectory_nodes.last().unwrap().clone();
+                                    self.cached_trajectory_nodes.push(last);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // For display, calculate remaining trajectory from last cached node
