@@ -196,18 +196,20 @@ impl TrajectoryPredictor {
             return;
         }
 
-        // Scale line thickness with zoom level to maintain visual consistency
-        // Base thickness is 8.0, scaled by zoom_level
+        // Scale line thickness with zoom level, but less aggressively
+        // Using power function to gradually increase thickness without constant size
+        // Base thickness is 8.0, scaled by zoom_level^0.8
         // When zoom_level = 1.0 (zoomed in), thickness = 8.0
-        // When zoom_level = 100.0 (zoomed out), thickness = 800.0
+        // When zoom_level = 10.0 (medium zoom), thickness ≈ 50.0
+        // When zoom_level = 100.0 (zoomed out), thickness ≈ 318.0
         let base_line_thickness = 8.0;
-        let scaled_line_thickness = base_line_thickness * zoom_level;
+        let scaled_line_thickness = base_line_thickness * zoom_level.powf(0.8);
 
         let base_marker_radius = 12.0;
-        let scaled_marker_radius = base_marker_radius * zoom_level;
+        let scaled_marker_radius = base_marker_radius * zoom_level.powf(0.8);
 
         let base_completion_radius = 60.0;
-        let scaled_completion_radius = base_completion_radius * zoom_level;
+        let scaled_completion_radius = base_completion_radius * zoom_level.powf(0.8);
 
         // Draw lines between points with zoom-scaled thickness
         for i in 0..points.len() - 1 {
