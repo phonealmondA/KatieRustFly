@@ -137,6 +137,37 @@ async fn main() {
             GameState::Quit => {
                 break;
             }
+
+            // Multiplayer states (not yet implemented in main.rs)
+            GameState::MultiplayerMenu => {
+                // TODO: Implement multiplayer menu handling
+                log::warn!("MultiplayerMenu state not yet implemented in main.rs");
+                game_state = GameState::MainMenu;
+            }
+
+            GameState::OnlineMultiplayerMenu => {
+                // TODO: Implement online multiplayer menu handling
+                log::warn!("OnlineMultiplayerMenu state not yet implemented in main.rs");
+                game_state = GameState::MultiplayerMenu;
+            }
+
+            GameState::MultiplayerHost => {
+                // TODO: Implement multiplayer host handling
+                log::warn!("MultiplayerHost state not yet implemented in main.rs");
+                game_state = GameState::MultiplayerMenu;
+            }
+
+            GameState::MultiplayerClient => {
+                // TODO: Implement multiplayer client handling
+                log::warn!("MultiplayerClient state not yet implemented in main.rs");
+                game_state = GameState::MultiplayerMenu;
+            }
+
+            GameState::SplitScreen => {
+                // TODO: Implement split screen handling
+                log::warn!("SplitScreen state not yet implemented in main.rs");
+                game_state = GameState::MultiplayerMenu;
+            }
         }
 
         // Render based on game state
@@ -152,12 +183,26 @@ async fn main() {
             }
 
             GameState::Playing | GameState::Paused => {
-                if let Some(ref game) = single_player_game {
+                if let Some(ref mut game) = single_player_game {
                     game.render();
                 }
             }
 
             GameState::Quit => {}
+
+            // Multiplayer rendering (placeholders)
+            GameState::MultiplayerMenu |
+            GameState::OnlineMultiplayerMenu |
+            GameState::MultiplayerHost |
+            GameState::MultiplayerClient |
+            GameState::SplitScreen => {
+                // Placeholder rendering - will be implemented when integrating multiplayer into main.rs
+                draw_text("Multiplayer mode (implementation pending)",
+                    screen_width() / 2.0 - 200.0,
+                    screen_height() / 2.0,
+                    30.0,
+                    WHITE);
+            }
         }
 
         // Log FPS every second

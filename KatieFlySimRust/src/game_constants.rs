@@ -18,7 +18,7 @@ impl GameConstants {
 
     // ==================== Primary Planet Parameters ====================
     pub const MAIN_PLANET_MASS: f32 = 198910000.0;
-    pub const ORBIT_PERIOD: f32 = 420.0;  // seconds
+    pub const ORBIT_PERIOD: f32 = 420.0;  // seconds - RESTORED to original C++ value
 
     // ==================== Derived Planet Parameters ====================
     pub const SECONDARY_PLANET_MASS: f32 = Self::MAIN_PLANET_MASS * 0.06;
@@ -27,7 +27,9 @@ impl GameConstants {
     pub const MAIN_PLANET_RADIUS: f32 = 10000.0;
     pub const MASS_RATIO: f32 = 0.06;
     pub const CUBE_ROOT_APPROX: f32 = 60.0;
-    pub const SECONDARY_PLANET_RADIUS: f32 = (Self::MAIN_PLANET_RADIUS / Self::CUBE_ROOT_APPROX) / 10000.0;
+    // MOON SIZE: Make it 1/4 the size of Earth (radius = 2500 instead of original 0.01667)
+    // Original was (10000/60)/10000 = 0.01667, but that's too small to see
+    pub const SECONDARY_PLANET_RADIUS: f32 = 2500.0;
 
     // Planet positions
     pub const MAIN_PLANET_X: f32 = 400.0;
@@ -40,7 +42,7 @@ impl GameConstants {
 
     // ==================== Fuel System Constants ====================
     pub const ROCKET_MAX_FUEL: f32 = 100.0;
-    pub const ROCKET_STARTING_FUEL: f32 = 0.0;
+    pub const ROCKET_STARTING_FUEL: f32 = 100.0;
 
     // Manual fuel transfer
     pub const MANUAL_FUEL_TRANSFER_RATE: f32 = 10.0;
@@ -68,10 +70,11 @@ impl GameConstants {
     pub const TRAJECTORY_TIME_STEP: f32 = 0.5;
     pub const TRAJECTORY_STEPS: i32 = 1000;
     pub const TRAJECTORY_COLLISION_RADIUS: f32 = 0.5;
+    pub const TRAJECTORY_IDLE_EXPAND_SECONDS: f32 = 10.0;  // Time before trajectory auto-expands to full orbit
 
     // ==================== Engine Parameters ====================
-    pub const BASE_THRUST_MULTIPLIER: f32 = 10000000000.0;
-    pub const ENGINE_THRUST_POWER: f32 = Self::G * Self::BASE_THRUST_MULTIPLIER;
+    pub const BASE_THRUST_MULTIPLIER: f32 = 100000.0;
+    pub const ENGINE_THRUST_POWER: f32 = Self::BASE_THRUST_MULTIPLIER;
 
     // ==================== Vehicle Transformation ====================
     pub const TRANSFORM_VELOCITY_FACTOR: f32 = 0.1;
@@ -251,7 +254,7 @@ mod tests {
     #[test]
     fn test_fuel_constants() {
         assert_eq!(GameConstants::ROCKET_MAX_FUEL, 100.0);
-        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 0.0);
+        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 100.0);
         assert!(GameConstants::ROCKET_STARTING_FUEL <= GameConstants::ROCKET_MAX_FUEL);
     }
 }

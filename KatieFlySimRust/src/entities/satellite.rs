@@ -118,6 +118,29 @@ impl Satellite {
             crate::game_constants::colors::SATELLITE_STATUS_DEPLETED
         }
     }
+
+    // === Position and Velocity Accessors ===
+    // These are also in GameObject trait, but provided here for direct access
+
+    pub fn position(&self) -> Vec2 {
+        self.data.position
+    }
+
+    pub fn velocity(&self) -> Vec2 {
+        self.data.velocity
+    }
+
+    pub fn set_velocity(&mut self, velocity: Vec2) {
+        self.data.velocity = velocity;
+    }
+
+    pub fn set_position(&mut self, position: Vec2) {
+        self.data.position = position;
+    }
+
+    pub fn rotation(&self) -> f32 {
+        self.rotation
+    }
 }
 
 impl GameObject for Satellite {

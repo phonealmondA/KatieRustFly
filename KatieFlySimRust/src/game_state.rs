@@ -5,8 +5,13 @@
 pub enum GameState {
     MainMenu,
     SavesMenu,
+    MultiplayerMenu,
+    OnlineMultiplayerMenu,
     Playing,
     Paused,
+    MultiplayerHost,
+    MultiplayerClient,
+    SplitScreen,
     Quit,
 }
 

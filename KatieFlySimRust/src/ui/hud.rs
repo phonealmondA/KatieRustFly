@@ -16,13 +16,13 @@ impl Hud {
     pub fn new(position: Vec2) -> Self {
         Hud {
             position,
-            bg_size: Vec2::new(250.0, 150.0),
+            bg_size: Vec2::new(250.0, 175.0), // Increased from 150 to 175 for extra line
             font_size: 16.0,
         }
     }
 
     /// Draw HUD with rocket information
-    pub fn draw_rocket_stats(&self, rocket: &Rocket) {
+    pub fn draw_rocket_stats(&self, rocket: &Rocket, selected_thrust_level: f32) {
         // Draw background
         draw_rectangle(
             self.position.x,
@@ -79,10 +79,19 @@ impl Hud {
         );
         y_offset += line_height;
 
-        // Thrust
+        // Selected thrust level (set by player with , and .)
+        let selected_percent = selected_thrust_level * 100.0;
+        self.draw_text(
+            &format!("Thrust Set: {:.0}%", selected_percent),
+            y_offset,
+            Color::new(0.5, 0.8, 1.0, 1.0), // Light blue
+        );
+        y_offset += line_height;
+
+        // Current thrust (actually being applied)
         let thrust_percent = rocket.thrust_level() * 100.0;
         self.draw_text(
-            &format!("Thrust: {:.0}%", thrust_percent),
+            &format!("Thrust Now: {:.0}%", thrust_percent),
             y_offset,
             if thrust_percent > 0.0 {
                 Color::new(1.0, 0.65, 0.0, 1.0) // Orange

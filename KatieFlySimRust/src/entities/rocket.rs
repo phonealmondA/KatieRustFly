@@ -28,6 +28,10 @@ pub struct Rocket {
     is_transferring_fuel_out: bool,
     fuel_transfer_rate: f32,
 
+    // Landing state
+    landed: bool,
+    landed_on_planet_id: Option<usize>,
+
     // Rocket parts (engines, etc.) - simplified for now
     // parts: Vec<Box<dyn RocketPart>>, // Will add later
 }
@@ -52,6 +56,8 @@ impl Rocket {
             is_transferring_fuel_in: false,
             is_transferring_fuel_out: false,
             fuel_transfer_rate: 0.0,
+            landed: false,
+            landed_on_planet_id: None,
         }
     }
 
@@ -155,10 +161,12 @@ impl Rocket {
 
         self.is_currently_thrusting = true;
 
-        // Calculate thrust direction
+        // Calculate thrust direction (in the direction the rocket nose points)
+        // Rocket nose points in direction (sin(rotation), -cos(rotation))
+        // Thrust points in same direction: (sin(rotation), -cos(rotation))
         let thrust_direction = Vec2::new(
-            self.rotation.cos(),
             self.rotation.sin(),
+            -self.rotation.cos(),
         );
 
         // Apply thrust force
@@ -204,15 +212,89 @@ impl Rocket {
     pub fn current_transfer_rate(&self) -> f32 {
         self.fuel_transfer_rate
     }
+
+    // === Position and Velocity Accessors ===
+
+    pub fn position(&self) -> Vec2 {
+        self.data.position
+    }
+
+    pub fn velocity(&self) -> Vec2 {
+        self.data.velocity
+    }
+
+    pub fn set_velocity(&mut self, velocity: Vec2) {
+        self.data.velocity = velocity;
+    }
+
+    pub fn set_position(&mut self, position: Vec2) {
+        self.data.position = position;
+    }
+
+    /// Current mass including fuel
+    pub fn current_mass(&self) -> f32 {
+        self.mass
+    }
+
+    // === Landing State ===
+
+    /// Check if rocket is landed on a planet
+    pub fn is_landed(&self) -> bool {
+        self.landed
+    }
+
+    /// Get the planet ID this rocket is landed on
+    pub fn landed_on_planet_id(&self) -> Option<usize> {
+        self.landed_on_planet_id
+    }
+
+    /// Land the rocket on a planet
+    pub fn land_on_planet(&mut self, planet_id: usize, surface_position: Vec2) {
+        self.landed = true;
+        self.landed_on_planet_id = Some(planet_id);
+        self.data.position = surface_position;
+        self.data.velocity = Vec2::ZERO;
+        self.thrust_level = 0.0;
+        self.is_currently_thrusting = false;
+        log::info!("Rocket landed on planet {} at position ({:.1}, {:.1})",
+            planet_id, surface_position.x, surface_position.y);
+    }
+
+    /// Take off from a planet
+    pub fn take_off(&mut self) {
+        if self.landed {
+            self.landed = false;
+            self.landed_on_planet_id = None;
+            log::info!("Rocket taking off!");
+        }
+    }
 }
 
 impl GameObject for Rocket {
     fn update(&mut self, delta_time: f32) {
-        // Apply thrust if thrust level is set
-        if self.thrust_level > 0.0 {
+        // Track if we just took off this frame to avoid double-applying thrust
+        let mut just_took_off = false;
+
+        // If landed, check for thrust to take off
+        if self.landed {
+            if self.thrust_level > 0.0 && self.can_thrust() {
+                self.take_off();
+                // Apply initial thrust for takeoff
+                self.apply_thrust(self.thrust_level * delta_time);
+                self.consume_fuel(delta_time);
+                just_took_off = true;
+                // Continue to update position after takeoff (don't return)
+            } else {
+                // Don't update position or physics while landed
+                return;
+            }
+        }
+
+        // Apply thrust if thrust level is set and didn't just take off
+        if self.thrust_level > 0.0 && !just_took_off {
             self.apply_thrust(self.thrust_level * delta_time);
             self.consume_fuel(delta_time);
-        } else {
+        } else if !just_took_off {
             self.is_currently_thrusting = false;
         }
 
@@ -296,8 +378,10 @@ mod tests {
             GameConstants::ROCKET_BASE_MASS,
         );
 
+        // Rocket starts with ROCKET_STARTING_FUEL, already at max (100)
+        // Adding 50 more should clamp to max
         rocket.add_fuel(50.0);
-        assert_relative_eq!(rocket.current_fuel(), GameConstants::ROCKET_STARTING_FUEL + 50.0, epsilon = 0.01);
+        assert_relative_eq!(rocket.current_fuel(), GameConstants::ROCKET_MAX_FUEL, epsilon = 0.01);
     }
 
     #[test]
@@ -327,7 +411,11 @@ mod tests {
             GameConstants::ROCKET_BASE_MASS,
         );
 
+        // Rocket starts with full fuel (100), set it lower first
+        rocket.set_fuel(80.0);
         let initial_mass = rocket.mass();
+
+        // Now add 10 fuel
         rocket.add_fuel(10.0);
         assert_relative_eq!(rocket.mass(), initial_mass + 10.0, epsilon = 0.01);
     }

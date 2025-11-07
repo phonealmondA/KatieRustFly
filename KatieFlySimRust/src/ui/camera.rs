@@ -32,16 +32,17 @@ impl Camera {
             zoom_level: 1.0,
             target_zoom: 1.0,
             target_center: center,
-            zoom_speed: 5.0,
-            follow_smoothing: 0.1,
+            zoom_speed: 2.0,          // Reduced from 5.0 for slower zoom
+            follow_smoothing: 0.5,    // Increased from 0.1 for tighter following
             window_size,
         }
     }
 
     /// Update camera (smooth zoom and follow)
     pub fn update(&mut self, delta_time: f32) {
-        // Smooth zoom
-        if (self.zoom_level - self.target_zoom).abs() > 0.01 {
+        // Smooth zoom - use relative threshold since zoom can vary widely
+        let threshold = self.target_zoom * 0.001; // 0.1% of target zoom
+        if (self.zoom_level - self.target_zoom).abs() > threshold {
             let zoom_delta = (self.target_zoom - self.zoom_level) * self.zoom_speed * delta_time;
             self.zoom_level += zoom_delta;
 
@@ -65,7 +66,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(0.1).min(10.0); // Clamp zoom
+        self.target_zoom = zoom.max(0.1).min(100000.0); // Clamp zoom (0.1 = zoomed in, 100000.0 = massively zoomed out)
     }
 
     /// Adjust zoom by a delta
@@ -132,6 +133,22 @@ impl Camera {
         // Use macroquad's camera to convert screen to world coordinates
         self.camera.screen_to_world(screen_pos)
     }
+
+    /// Convert world coordinates to screen coordinates
+    pub fn world_to_screen(&self, world_pos: Vec2) -> Vec2 {
+        // Use macroquad's camera to convert world to screen coordinates
+        self.camera.world_to_screen(world_pos)
+    }
+
+    /// Set camera position (instant, no smoothing)
+    pub fn set_position(&mut self, position: Vec2) {
+        self.set_center(position);
+    }
+
+    /// Get current zoom level
+    pub fn zoom(&self) -> f32 {
+        self.zoom_level
+    }
 }
 
 #[cfg(test)]
@@ -148,10 +165,10 @@ mod tests {
     fn test_zoom_clamping() {
         let mut camera = Camera::new(Vec2::new(1920.0, 1080.0));
 
-        camera.set_target_zoom(20.0); // Too high
-        assert_eq!(camera.target_zoom, 10.0);
+        camera.set_target_zoom(200000.0); // Too high (too zoomed out)
+        assert_eq!(camera.target_zoom, 100000.0);
 
-        camera.set_target_zoom(0.01); // Too low
+        camera.set_target_zoom(0.01); // Too low (too zoomed in)
         assert_eq!(camera.target_zoom, 0.1);
     }
 
