@@ -25,7 +25,7 @@ impl TrajectoryPredictor {
         }
     }
 
-    /// Predict trajectory for a rocket
+    /// Predict trajectory for a rocket, accounting for planet motion
     ///
     /// # Arguments
     /// * `rocket` - The rocket to predict trajectory for
@@ -36,6 +36,9 @@ impl TrajectoryPredictor {
     ///
     /// # Returns
     /// Vector of trajectory points and whether it self-intersects
+    ///
+    /// Note: This simulation accounts for planet motion (e.g., Moon orbiting Earth)
+    /// during the trajectory prediction, providing accurate future positions.
     pub fn predict_trajectory(
         &mut self,
         rocket: &Rocket,
@@ -52,6 +55,21 @@ impl TrajectoryPredictor {
         let mut velocity = rocket.velocity();
         let mut time = 0.0;
 
+        // Create mutable copies of planet states (position, velocity, mass, radius)
+        // This allows us to simulate their motion during trajectory prediction
+        let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = planets
+            .iter()
+            .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+            .collect();
+
+        // Identify Earth (largest planet) for pinning - it doesn't move
+        let earth_index = planet_states
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.3.partial_cmp(&b.3).unwrap())
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
         // Simulate forward in time
         for _ in 0..steps {
             points.push(TrajectoryPoint {
@@ -60,24 +78,67 @@ impl TrajectoryPredictor {
                 time,
             });
 
-            // Apply gravity forces
+            // Step 1: Apply planet-to-planet gravity (e.g., Moon orbiting Earth)
+            // This updates planet velocities based on gravitational interactions
+            if planet_states.len() >= 2 {
+                for i in 0..planet_states.len() {
+                    if i == earth_index {
+                        continue; // Earth is pinned, doesn't move
+                    }
+
+                    let mut planet_acceleration = Vec2::ZERO;
+
+                    // Calculate gravity from all other planets
+                    for j in 0..planet_states.len() {
+                        if i == j {
+                            continue;
+                        }
+
+                        let (pos_i, _, mass_i, radius_i) = planet_states[i];
+                        let (pos_j, _, mass_j, _) = planet_states[j];
+
+                        let direction = pos_j - pos_i;
+                        let distance = vector_helper::magnitude(direction);
+
+                        if distance > radius_i {
+                            let force = self.gravity_simulator.calculate_gravitational_force(
+                                pos_i, mass_i, pos_j, mass_j,
+                            );
+                            planet_acceleration += force / mass_i;
+                        }
+                    }
+
+                    // Update planet velocity
+                    planet_states[i].1 += planet_acceleration * time_step;
+                }
+            }
+
+            // Step 2: Update planet positions based on their velocities
+            for i in 0..planet_states.len() {
+                if i != earth_index {
+                    let vel = planet_states[i].1; // Extract velocity first to avoid borrow checker issues
+                    planet_states[i].0 += vel * time_step;
+                }
+            }
+
+            // Step 3: Calculate rocket's acceleration from updated planet positions
             let mut acceleration = Vec2::ZERO;
-            for planet in planets {
-                let direction = planet.position() - position;
+            for &(planet_pos, _, planet_mass, planet_radius) in &planet_states {
+                let direction = planet_pos - position;
                 let distance = vector_helper::magnitude(direction);
 
-                if distance > planet.radius() {
+                if distance > planet_radius {
                     let force_vec = self.gravity_simulator.calculate_gravitational_force(
                         position,
                         rocket.current_mass(),
-                        planet.position(),
-                        planet.mass(),
+                        planet_pos,
+                        planet_mass,
                     );
                     acceleration += force_vec / rocket.current_mass();
                 }
             }
 
-            // Update velocity and position
+            // Step 4: Update rocket velocity and position
             velocity += acceleration * time_step;
             position += velocity * time_step;
             time += time_step;
