@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 
 use crate::entities::{GameObject, Planet, Rocket};
 use crate::game_constants::GameConstants;
-use crate::physics::TrajectoryPredictor;
+use crate::physics::{TrajectoryPoint, TrajectoryPredictor};
 use crate::save_system::{GameSaveData, SavedCamera};
 use crate::systems::World;
 use crate::ui::{Camera, Hud};
@@ -33,6 +33,12 @@ pub struct SinglePlayerGame {
     rotation_input: f32,
     idle_timer: f32, // Time since last input (for auto-expanding trajectory)
 
+    // Trajectory caching (to prevent jitter in extended predictions)
+    cached_trajectory_nodes: Vec<TrajectoryPoint>, // First 10 nodes locked after idle threshold
+    cached_rocket_position: Vec2, // Rocket position when cache was created
+    cached_rocket_velocity: Vec2, // Rocket velocity when cache was created
+    cached_rocket_mass: f32, // Rocket mass when cache was created
+
     // Save/load
     current_save_name: Option<String>,
     last_auto_save: f32,
@@ -52,6 +58,10 @@ impl SinglePlayerGame {
             selected_thrust_level: 0.0, // Start at 0% thrust
             rotation_input: 0.0,
             idle_timer: 0.0, // Start at 0
+            cached_trajectory_nodes: Vec::new(),
+            cached_rocket_position: Vec2::ZERO,
+            cached_rocket_velocity: Vec2::ZERO,
+            cached_rocket_mass: 0.0,
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -259,6 +269,7 @@ impl SinglePlayerGame {
         if mouse_wheel != 0.0 {
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
             self.idle_timer = 0.0; // Reset idle timer on zoom
+            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
         }
 
         // Keyboard zoom controls (E = zoom out, Q = zoom in)
@@ -266,10 +277,12 @@ impl SinglePlayerGame {
         if is_key_down(KeyCode::Q) {
             self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
             self.idle_timer = 0.0; // Reset idle timer on zoom
+            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
         }
         if is_key_down(KeyCode::E) {
             self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
             self.idle_timer = 0.0; // Reset idle timer on zoom
+            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
         }
 
         SinglePlayerResult::Continue
@@ -319,6 +332,7 @@ impl SinglePlayerGame {
 
         if has_input {
             self.idle_timer = 0.0;
+            self.cached_trajectory_nodes.clear(); // Clear cache on input
         }
 
         // Thrust level adjustment (comma to decrease, period to increase)
@@ -466,21 +480,75 @@ impl SinglePlayerGame {
         if let Some(rocket) = self.world.get_active_rocket() {
             // Calculate trajectory steps based on idle timer
             // If idle for more than threshold, extend to show full orbit
-            let trajectory_steps = if self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS {
+            let is_extended = self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS;
+            let trajectory_steps = if is_extended {
                 1000 // Extended steps for full orbit (~500 seconds)
             } else {
                 200 // Normal steps (~100 seconds)
             };
 
-            // Predict trajectory (0.5 second steps)
-            // Pass ALL planets so rocket trajectory accounts for both Earth and Moon
-            let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
-                rocket,
-                &all_planets,
-                0.5,
-                trajectory_steps,
-                true,
-            );
+            // Check if rocket has moved significantly (clear cache if so)
+            let rocket_moved = self.cached_trajectory_nodes.is_empty() ||
+                (rocket.position() - self.cached_rocket_position).length() > 1.0 ||
+                (rocket.velocity() - self.cached_rocket_velocity).length() > 0.1;
+
+            let (trajectory_points, self_intersects) = if !is_extended || rocket_moved {
+                // Not in extended mode OR rocket moved - clear cache and calculate full trajectory
+                self.cached_trajectory_nodes.clear();
+                self.trajectory_predictor.predict_trajectory(
+                    rocket,
+                    &all_planets,
+                    0.5,
+                    trajectory_steps,
+                    true,
+                )
+            } else if self.cached_trajectory_nodes.is_empty() {
+                // First time in extended mode - calculate full trajectory and cache first 10 nodes
+                let (full_trajectory, intersects) = self.trajectory_predictor.predict_trajectory(
+                    rocket,
+                    &all_planets,
+                    0.5,
+                    trajectory_steps,
+                    true,
+                );
+
+                // Cache first 10 nodes (5 seconds at 0.5s per step)
+                if full_trajectory.len() >= 10 {
+                    self.cached_trajectory_nodes = full_trajectory[..10].to_vec();
+                    self.cached_rocket_position = rocket.position();
+                    self.cached_rocket_velocity = rocket.velocity();
+                    self.cached_rocket_mass = rocket.current_mass();
+                    log::info!("Cached first 10 trajectory nodes for stability");
+                }
+
+                (full_trajectory, intersects)
+            } else {
+                // Use cached nodes and calculate from node 11 onward
+                let last_cached = &self.cached_trajectory_nodes[9];
+
+                // Calculate remaining trajectory from node 11 using cached state
+                let remaining_steps = trajectory_steps - 10;
+                let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
+                    last_cached.position,
+                    last_cached.velocity,
+                    self.cached_rocket_mass,
+                    &all_planets,
+                    0.5,
+                    remaining_steps,
+                    true,
+                );
+
+                // Adjust time values in remaining trajectory
+                for point in &mut remaining_trajectory {
+                    point.time += last_cached.time;
+                }
+
+                // Concatenate cached + remaining
+                let mut full_trajectory = self.cached_trajectory_nodes.clone();
+                full_trajectory.append(&mut remaining_trajectory);
+
+                (full_trajectory, intersects)
+            };
 
             // Draw trajectory with color based on whether it self-intersects (completes orbit)
             let trajectory_color = if self_intersects {

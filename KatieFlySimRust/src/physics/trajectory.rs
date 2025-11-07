@@ -155,6 +155,137 @@ impl TrajectoryPredictor {
         (points, self_intersects)
     }
 
+    /// Predict trajectory from a specific position and velocity
+    ///
+    /// # Arguments
+    /// * `start_pos` - Starting position
+    /// * `start_vel` - Starting velocity
+    /// * `mass` - Object mass (affects acceleration from gravity)
+    /// * `planets` - All planets affecting gravity
+    /// * `time_step` - Time step for simulation
+    /// * `steps` - Number of steps to predict
+    /// * `detect_self_intersection` - Check if trajectory intersects itself
+    ///
+    /// # Returns
+    /// Vector of trajectory points and whether it self-intersects
+    pub fn predict_trajectory_from_state(
+        &mut self,
+        start_pos: Vec2,
+        start_vel: Vec2,
+        mass: f32,
+        planets: &[&Planet],
+        time_step: f32,
+        steps: usize,
+        detect_self_intersection: bool,
+    ) -> (Vec<TrajectoryPoint>, bool) {
+        let mut points = Vec::with_capacity(steps);
+        let mut self_intersects = false;
+
+        // Start with provided state
+        let mut position = start_pos;
+        let mut velocity = start_vel;
+        let mut time = 0.0;
+
+        // Create mutable copies of planet states (position, velocity, mass, radius)
+        // This allows us to simulate their motion during trajectory prediction
+        let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = planets
+            .iter()
+            .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+            .collect();
+
+        // Identify Earth (largest planet) for pinning - it doesn't move
+        let earth_index = planet_states
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.3.partial_cmp(&b.3).unwrap())
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+
+        // Simulate forward in time
+        for _ in 0..steps {
+            points.push(TrajectoryPoint {
+                position,
+                velocity,
+                time,
+            });
+
+            // Step 1: Apply planet-to-planet gravity (e.g., Moon orbiting Earth)
+            // This updates planet velocities based on gravitational interactions
+            if planet_states.len() >= 2 {
+                for i in 0..planet_states.len() {
+                    if i == earth_index {
+                        continue; // Earth is pinned, doesn't move
+                    }
+
+                    let mut planet_acceleration = Vec2::ZERO;
+
+                    // Calculate gravity from all other planets
+                    for j in 0..planet_states.len() {
+                        if i == j {
+                            continue;
+                        }
+
+                        let (pos_i, _, mass_i, radius_i) = planet_states[i];
+                        let (pos_j, _, mass_j, _) = planet_states[j];
+
+                        let direction = pos_j - pos_i;
+                        let distance = vector_helper::magnitude(direction);
+
+                        if distance > radius_i {
+                            let force = self.gravity_simulator.calculate_gravitational_force(
+                                pos_i, mass_i, pos_j, mass_j,
+                            );
+                            planet_acceleration += force / mass_i;
+                        }
+                    }
+
+                    // Update planet velocity
+                    planet_states[i].1 += planet_acceleration * time_step;
+                }
+            }
+
+            // Step 2: Update planet positions based on their velocities
+            for i in 0..planet_states.len() {
+                if i != earth_index {
+                    let vel = planet_states[i].1;
+                    planet_states[i].0 += vel * time_step;
+                }
+            }
+
+            // Step 3: Calculate object's acceleration from updated planet positions
+            let mut acceleration = Vec2::ZERO;
+            for &(planet_pos, _, planet_mass, planet_radius) in &planet_states {
+                let direction = planet_pos - position;
+                let distance = vector_helper::magnitude(direction);
+
+                if distance > planet_radius {
+                    let force_vec = self.gravity_simulator.calculate_gravitational_force(
+                        position,
+                        mass,
+                        planet_pos,
+                        planet_mass,
+                    );
+                    acceleration += force_vec / mass;
+                }
+            }
+
+            // Step 4: Update velocity and position
+            velocity += acceleration * time_step;
+            position += velocity * time_step;
+            time += time_step;
+
+            // Check for self-intersection if requested
+            if detect_self_intersection && points.len() > 20 {
+                if self.check_intersection(&points, position) {
+                    self_intersects = true;
+                    break;
+                }
+            }
+        }
+
+        (points, self_intersects)
+    }
+
     /// Predict trajectory for a planet (e.g., moon orbiting Earth)
     ///
     /// # Arguments
