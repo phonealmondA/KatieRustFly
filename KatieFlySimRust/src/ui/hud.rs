@@ -130,9 +130,10 @@ impl Hud {
         // Right base
         let right = Vec2::new(size * 0.4, size * 0.5);
 
-        // Rotate points by rocket rotation (negate to match rocket's actual direction)
-        let cos_r = (-rotation).cos();
-        let sin_r = (-rotation).sin();
+        // Rotate points by rocket rotation (add PI to flip 180° and match rocket's direction)
+        let adjusted_rotation = rotation + std::f32::consts::PI;
+        let cos_r = adjusted_rotation.cos();
+        let sin_r = adjusted_rotation.sin();
 
         let rotate = |p: Vec2| -> Vec2 {
             Vec2::new(
