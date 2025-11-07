@@ -45,6 +45,10 @@ pub struct SinglePlayerGame {
     consumed_trajectory_start: usize, // How many nodes have been consumed/passed
     fixed_marker_positions: Vec<Vec2>, // Fixed world positions of marker nodes when trajectory locks
 
+    // Preview trajectory optimization (massive performance boost during caching)
+    cached_preview_trajectory: Vec<TrajectoryPoint>, // Preview of remaining trajectory
+    preview_frames_since_recalc: u32, // Frames since last preview recalc
+
     // Save/load
     current_save_name: Option<String>,
     last_auto_save: f32,
@@ -72,6 +76,8 @@ impl SinglePlayerGame {
             current_node_index: 0,
             consumed_trajectory_start: 0,
             fixed_marker_positions: Vec::new(),
+            cached_preview_trajectory: Vec::new(),
+            preview_frames_since_recalc: 0,
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -622,103 +628,129 @@ impl SinglePlayerGame {
 
                 (self.cached_trajectory_nodes.clone(), intersects)
             } else {
-                // Incrementally cache one more node per frame until fully cached
+                // OPTIMIZATION: Incrementally cache FIVE nodes per frame (was 1)
+                // Reaches full cache 5x faster = less time in expensive preview phase
                 let cached_count = self.cached_trajectory_nodes.len();
-                let last_cached = &self.cached_trajectory_nodes[cached_count - 1];
+                let nodes_to_add = 5.min(trajectory_steps - cached_count); // Don't exceed target
 
-                // Calculate just ONE more node from the last cached position
+                // Calculate next 5 nodes from the last cached position
+                let last_cached = &self.cached_trajectory_nodes[cached_count - 1];
                 let (next_nodes, _) = self.trajectory_predictor.predict_trajectory_from_state(
                     last_cached.position,
                     last_cached.velocity,
                     self.cached_rocket_mass,
                     &all_planets,
                     0.5,
-                    1, // Just ONE node
-                    false, // Don't check intersection for single node
+                    nodes_to_add, // Add 5 nodes at once
+                    false, // Don't check intersection during incremental add
                 );
 
-                // Add the new node to cache (with adjusted time)
-                if let Some(mut new_node) = next_nodes.into_iter().next() {
-                    new_node.time += last_cached.time;
+                // Add all new nodes to cache (with adjusted time)
+                for mut new_node in next_nodes.into_iter().take(nodes_to_add) {
+                    let last_time = self.cached_trajectory_nodes.last().unwrap().time;
+                    new_node.time = last_time + 0.5; // Each node is 0.5s ahead
                     self.cached_trajectory_nodes.push(new_node);
+                }
 
-                    let new_cached_count = self.cached_trajectory_nodes.len();
-                    if new_cached_count % 50 == 0 || new_cached_count == trajectory_steps {
-                        log::info!("Trajectory caching progress: {}/{} nodes ({:.1}%)",
-                            new_cached_count, trajectory_steps,
-                            (new_cached_count as f32 / trajectory_steps as f32) * 100.0);
-                    }
+                let new_cached_count = self.cached_trajectory_nodes.len();
+                if new_cached_count % 50 == 0 || new_cached_count == trajectory_steps {
+                    log::info!("Trajectory caching progress: {}/{} nodes ({:.1}%)",
+                        new_cached_count, trajectory_steps,
+                        (new_cached_count as f32 / trajectory_steps as f32) * 100.0);
+                }
 
-                    // ORBIT REPETITION DETECTION (OPTIMIZED)
-                    // Only check at specific milestones to reduce per-frame overhead
-                    // Milestones: 200, 400, 600, 800 nodes
-                    // This gives ~15% performance improvement during caching phase
-                    let is_milestone = matches!(new_cached_count, 200 | 400 | 600 | 800);
+                // ORBIT REPETITION DETECTION (OPTIMIZED)
+                // Only check at specific milestones to reduce per-frame overhead
+                // Milestones: 200, 400, 600, 800 nodes
+                // This gives ~15% performance improvement during caching phase
+                let is_milestone = matches!(new_cached_count, 200 | 400 | 600 | 800);
 
-                    if is_milestone && new_cached_count < trajectory_steps {
-                        // Check if trajectory is repeating (completed one full orbit and starting to loop)
-                        let check_window = 20; // Check last 20 points against first 20 points
-                        if new_cached_count >= check_window * 2 {
-                            let mut is_repeating = true;
-                            let tolerance = 15.0; // Position must be within 15 units
+                if is_milestone && new_cached_count < trajectory_steps {
+                    // Check if trajectory is repeating (completed one full orbit and starting to loop)
+                    let check_window = 20; // Check last 20 points against first 20 points
+                    if new_cached_count >= check_window * 2 {
+                        let mut is_repeating = true;
+                        let tolerance = 15.0; // Position must be within 15 units
 
-                            // Compare last N points with first N points
-                            for i in 0..check_window {
-                                let start_pos = self.cached_trajectory_nodes[i].position;
-                                let recent_idx = new_cached_count - check_window + i;
-                                let recent_pos = self.cached_trajectory_nodes[recent_idx].position;
-                                let distance = (start_pos - recent_pos).length();
+                        // Compare last N points with first N points
+                        for i in 0..check_window {
+                            let start_pos = self.cached_trajectory_nodes[i].position;
+                            let recent_idx = new_cached_count - check_window + i;
+                            let recent_pos = self.cached_trajectory_nodes[recent_idx].position;
+                            let distance = (start_pos - recent_pos).length();
 
-                                if distance > tolerance {
-                                    is_repeating = false;
-                                    break;
-                                }
+                            if distance > tolerance {
+                                is_repeating = false;
+                                break;
                             }
+                        }
 
-                            if is_repeating {
-                                // Orbit is repeating! Lock it now, truncate to one complete orbit
-                                log::info!("STABLE ORBIT DETECTED at {} nodes (milestone check) - locking trajectory immediately!", new_cached_count);
+                        if is_repeating {
+                            // Orbit is repeating! Lock it now, truncate to one complete orbit
+                            log::info!("STABLE ORBIT DETECTED at {} nodes (milestone check) - locking trajectory immediately!", new_cached_count);
 
-                                // Trim trajectory to just the completed orbit (exclude the repeating part)
-                                self.cached_trajectory_nodes.truncate(new_cached_count - check_window);
+                            // Trim trajectory to just the completed orbit (exclude the repeating part)
+                            self.cached_trajectory_nodes.truncate(new_cached_count - check_window);
 
-                                // Force lock by setting count to trajectory_steps
-                                // This will trigger the locking logic in the next frame
-                                while self.cached_trajectory_nodes.len() < trajectory_steps {
-                                    // Pad with last node to reach trajectory_steps
-                                    let last = self.cached_trajectory_nodes.last().unwrap().clone();
-                                    self.cached_trajectory_nodes.push(last);
-                                }
+                            // Force lock by setting count to trajectory_steps
+                            // This will trigger the locking logic in the next frame
+                            while self.cached_trajectory_nodes.len() < trajectory_steps {
+                                // Pad with last node to reach trajectory_steps
+                                let last = self.cached_trajectory_nodes.last().unwrap().clone();
+                                self.cached_trajectory_nodes.push(last);
                             }
                         }
                     }
                 }
 
-                // For display, calculate remaining trajectory from last cached node
-                let last_cached_now = self.cached_trajectory_nodes.last().unwrap();
-                let remaining_steps = trajectory_steps - self.cached_trajectory_nodes.len();
+                // OPTIMIZATION: Preview trajectory caching (MASSIVE performance boost)
+                // Only recalculate preview every 10 frames instead of every frame
+                let remaining_steps = trajectory_steps - new_cached_count;
 
                 if remaining_steps > 0 {
-                    let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
-                        last_cached_now.position,
-                        last_cached_now.velocity,
-                        self.cached_rocket_mass,
-                        &all_planets,
-                        0.5,
-                        remaining_steps,
-                        true,
-                    );
+                    // Check if we need to recalculate preview
+                    let should_recalc = self.preview_frames_since_recalc >= 10 ||
+                                       self.cached_preview_trajectory.is_empty();
 
-                    // Adjust time values in remaining trajectory
-                    for point in &mut remaining_trajectory {
-                        point.time += last_cached_now.time;
+                    if should_recalc {
+                        // Recalculate preview trajectory (expensive operation)
+                        let last_cached_now = self.cached_trajectory_nodes.last().unwrap();
+                        let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
+                            last_cached_now.position,
+                            last_cached_now.velocity,
+                            self.cached_rocket_mass,
+                            &all_planets,
+                            0.5,
+                            remaining_steps,
+                            true,
+                        );
+
+                        // Adjust time values in remaining trajectory
+                        for point in &mut remaining_trajectory {
+                            point.time += last_cached_now.time;
+                        }
+
+                        // Cache the preview
+                        self.cached_preview_trajectory = remaining_trajectory;
+                        self.preview_frames_since_recalc = 0;
+
+                        // Concatenate cached + preview for display
+                        let mut full_trajectory = self.cached_trajectory_nodes.clone();
+                        full_trajectory.append(&mut self.cached_preview_trajectory.clone());
+
+                        (full_trajectory, intersects)
+                    } else {
+                        // Reuse cached preview (HUGE savings!)
+                        self.preview_frames_since_recalc += 1;
+
+                        // Concatenate cached + preview for display
+                        let mut full_trajectory = self.cached_trajectory_nodes.clone();
+                        full_trajectory.append(&mut self.cached_preview_trajectory.clone());
+
+                        // Check intersection on preview (lightweight)
+                        let intersects = false; // Will be accurate once fully cached
+                        (full_trajectory, intersects)
                     }
-
-                    // Concatenate cached + remaining
-                    let mut full_trajectory = self.cached_trajectory_nodes.clone();
-                    full_trajectory.append(&mut remaining_trajectory);
-
-                    (full_trajectory, intersects)
                 } else {
                     // All cached, check for intersection
                     let intersects = false; // Will be checked in next frame when fully cached
@@ -901,6 +933,8 @@ impl SinglePlayerGame {
         self.current_node_index = 0;
         self.consumed_trajectory_start = 0;
         self.fixed_marker_positions.clear();
+        self.cached_preview_trajectory.clear();
+        self.preview_frames_since_recalc = 0;
     }
 }
 
