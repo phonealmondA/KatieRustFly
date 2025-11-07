@@ -70,6 +70,7 @@ impl GameConstants {
     pub const TRAJECTORY_TIME_STEP: f32 = 0.5;
     pub const TRAJECTORY_STEPS: i32 = 1000;
     pub const TRAJECTORY_COLLISION_RADIUS: f32 = 0.5;
+    pub const TRAJECTORY_IDLE_EXPAND_SECONDS: f32 = 10.0;  // Time before trajectory auto-expands to full orbit
 
     // ==================== Engine Parameters ====================
     pub const BASE_THRUST_MULTIPLIER: f32 = 1000.0;

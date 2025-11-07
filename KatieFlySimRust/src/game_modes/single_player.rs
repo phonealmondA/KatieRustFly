@@ -31,6 +31,7 @@ pub struct SinglePlayerGame {
     // Input state
     selected_thrust_level: f32, // 0.0 to 1.0 (0% to 100%)
     rotation_input: f32,
+    idle_timer: f32, // Time since last input (for auto-expanding trajectory)
 
     // Save/load
     current_save_name: Option<String>,
@@ -50,6 +51,7 @@ impl SinglePlayerGame {
             show_controls: false,
             selected_thrust_level: 0.0, // Start at 0% thrust
             rotation_input: 0.0,
+            idle_timer: 0.0, // Start at 0
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -256,15 +258,18 @@ impl SinglePlayerGame {
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
+            self.idle_timer = 0.0; // Reset idle timer on zoom
         }
 
         // Keyboard zoom controls (E = zoom out, Q = zoom in)
         // Note: zoom_scale = 1/zoom_level, so larger zoom_level = more zoomed out
         if is_key_down(KeyCode::Q) {
             self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
+            self.idle_timer = 0.0; // Reset idle timer on zoom
         }
         if is_key_down(KeyCode::E) {
             self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
+            self.idle_timer = 0.0; // Reset idle timer on zoom
         }
 
         SinglePlayerResult::Continue
@@ -277,6 +282,9 @@ impl SinglePlayerGame {
         }
 
         self.game_time += delta_time;
+
+        // Increment idle timer
+        self.idle_timer += delta_time;
 
         // Handle input for active rocket
         self.update_rocket_input();
@@ -302,6 +310,17 @@ impl SinglePlayerGame {
 
     /// Update rocket based on keyboard input
     fn update_rocket_input(&mut self) {
+        // Check if any input is detected and reset idle timer
+        let has_input = is_key_pressed(KeyCode::Comma) || is_key_pressed(KeyCode::Period) ||
+                        is_key_down(KeyCode::Space) ||
+                        is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) ||
+                        is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) ||
+                        is_key_pressed(KeyCode::L) || is_key_pressed(KeyCode::T);
+
+        if has_input {
+            self.idle_timer = 0.0;
+        }
+
         // Thrust level adjustment (comma to decrease, period to increase)
         if is_key_pressed(KeyCode::Comma) {
             self.selected_thrust_level = (self.selected_thrust_level - 0.05).max(0.0);
@@ -445,13 +464,21 @@ impl SinglePlayerGame {
 
         // Draw trajectory prediction for active rocket
         if let Some(rocket) = self.world.get_active_rocket() {
-            // Predict trajectory (0.5 second steps, 200 steps = 100 seconds)
+            // Calculate trajectory steps based on idle timer
+            // If idle for more than threshold, extend to show full orbit
+            let trajectory_steps = if self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS {
+                1000 // Extended steps for full orbit (~500 seconds)
+            } else {
+                200 // Normal steps (~100 seconds)
+            };
+
+            // Predict trajectory (0.5 second steps)
             // Pass ALL planets so rocket trajectory accounts for both Earth and Moon
             let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
                 rocket,
                 &all_planets,
                 0.5,
-                200,
+                trajectory_steps,
                 true,
             );
 
