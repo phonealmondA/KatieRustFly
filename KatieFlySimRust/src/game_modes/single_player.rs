@@ -29,7 +29,7 @@ pub struct SinglePlayerGame {
     show_controls: bool,
 
     // Input state
-    thrust_input: f32,
+    selected_thrust_level: f32, // 0.0 to 1.0 (0% to 100%)
     rotation_input: f32,
 
     // Save/load
@@ -48,7 +48,7 @@ impl SinglePlayerGame {
             game_time: 0.0,
             is_paused: false,
             show_controls: false,
-            thrust_input: 0.0,
+            selected_thrust_level: 0.0, // Start at 0% thrust
             rotation_input: 0.0,
             current_save_name: None,
             last_auto_save: 0.0,
@@ -302,13 +302,23 @@ impl SinglePlayerGame {
 
     /// Update rocket based on keyboard input
     fn update_rocket_input(&mut self) {
+        // Thrust level adjustment (comma to decrease, period to increase)
+        if is_key_pressed(KeyCode::Comma) {
+            self.selected_thrust_level = (self.selected_thrust_level - 0.05).max(0.0);
+            log::info!("Thrust level decreased to {}%", (self.selected_thrust_level * 100.0) as i32);
+        }
+        if is_key_pressed(KeyCode::Period) {
+            self.selected_thrust_level = (self.selected_thrust_level + 0.05).min(1.0);
+            log::info!("Thrust level increased to {}%", (self.selected_thrust_level * 100.0) as i32);
+        }
+
         // Get input state
         let mut thrust_level = 0.0;
         let mut rotation_delta = 0.0;
 
-        // Thrust controls
+        // Thrust controls - space bar applies the selected thrust level
         if is_key_down(KeyCode::Space) {
-            thrust_level = 1.0;
+            thrust_level = self.selected_thrust_level;
         }
 
         // Rotation controls
@@ -460,7 +470,7 @@ impl SinglePlayerGame {
 
         // Render HUD
         if let Some(rocket) = self.world.get_active_rocket() {
-            self.hud.draw_rocket_stats(rocket);
+            self.hud.draw_rocket_stats(rocket, self.selected_thrust_level);
         } else {
             self.hud.draw_message("No active rocket");
         }
@@ -533,7 +543,9 @@ impl SinglePlayerGame {
 
             // Controls list
             let controls = [
-                ("SPACE", "Thrust"),
+                ("COMMA", "Decrease thrust -5%"),
+                ("PERIOD", "Increase thrust +5%"),
+                ("SPACE", "Apply thrust"),
                 ("A / LEFT", "Rotate right"),
                 ("D / RIGHT", "Rotate left"),
                 ("Q", "Zoom in"),
