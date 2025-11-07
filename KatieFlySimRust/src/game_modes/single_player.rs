@@ -33,21 +33,11 @@ pub struct SinglePlayerGame {
     rotation_input: f32,
     idle_timer: f32, // Time since last input (for auto-expanding trajectory)
 
-    // Trajectory caching (to prevent jitter in extended predictions)
-    cached_trajectory_nodes: Vec<TrajectoryPoint>, // First 10 nodes locked after idle threshold
-    cached_rocket_position: Vec2, // Rocket position when cache was created
-    cached_rocket_velocity: Vec2, // Rocket velocity when cache was created
-    cached_rocket_mass: f32, // Rocket mass when cache was created
-
-    // Node-to-node travel tracking (for stable locked trajectories)
-    trajectory_locked: bool, // True when trajectory is fully cached and stable
-    current_node_index: usize, // Index of the next node the rocket is traveling toward
-    consumed_trajectory_start: usize, // How many nodes have been consumed/passed
-    fixed_marker_positions: Vec<Vec2>, // Fixed world positions of marker nodes when trajectory locks
-
-    // Preview trajectory optimization (massive performance boost during caching)
-    cached_preview_trajectory: Vec<TrajectoryPoint>, // Preview of remaining trajectory
-    preview_frames_since_recalc: u32, // Frames since last preview recalc
+    // Milestone-based trajectory system (MUCH simpler and more efficient)
+    milestone_nodes: Vec<TrajectoryPoint>, // 10 milestone nodes, 300 steps (150s) apart
+    milestone_step_size: usize, // Steps between each milestone (300 = 150 seconds)
+    current_milestone_index: usize, // Which milestone rocket is currently traveling toward
+    trajectory_orbit_detected: bool, // True when trajectory loops back to start
 
     // Save/load
     current_save_name: Option<String>,
@@ -68,16 +58,10 @@ impl SinglePlayerGame {
             selected_thrust_level: 0.0, // Start at 0% thrust
             rotation_input: 0.0,
             idle_timer: 0.0, // Start at 0
-            cached_trajectory_nodes: Vec::new(),
-            cached_rocket_position: Vec2::ZERO,
-            cached_rocket_velocity: Vec2::ZERO,
-            cached_rocket_mass: 0.0,
-            trajectory_locked: false,
-            current_node_index: 0,
-            consumed_trajectory_start: 0,
-            fixed_marker_positions: Vec::new(),
-            cached_preview_trajectory: Vec::new(),
-            preview_frames_since_recalc: 0,
+            milestone_nodes: Vec::new(),
+            milestone_step_size: 300, // 300 steps = 150 seconds between milestones
+            current_milestone_index: 0,
+            trajectory_orbit_detected: false,
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -492,66 +476,157 @@ impl SinglePlayerGame {
             log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
         }
 
-        // Draw trajectory prediction for active rocket
+        // MILESTONE-BASED TRAJECTORY SYSTEM (Much simpler and more efficient!)
+        // Calculate 10 milestones, 300 steps (150s) apart
+        // Wait until milestone 5 reached, then calculate next 10
+        // Detect orbit when milestones loop back to start
         if let Some(rocket) = self.world.get_active_rocket() {
-            // Calculate trajectory steps based on idle timer
-            // If idle for more than threshold, extend to show full orbit
-            let is_extended = self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS;
-            let trajectory_steps = if is_extended {
-                1000 // Extended steps for full orbit (~500 seconds)
-            } else {
-                200 // Normal steps (~100 seconds)
-            };
+            let is_idle = self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS;
 
-            // Check if rocket has moved significantly (only check if trajectory is NOT locked)
-            // OPTIMIZATION: When in extended mode (idle > 10s), IGNORE velocity/position changes
-            // from orbital mechanics. Only reset on user input (handled by reset_trajectory_cache())
-            let rocket_moved = if self.trajectory_locked {
-                false // Already locked, follow the predicted path
-            } else if is_extended {
-                // In extended mode (idle > 10s), ONLY reset if cache is empty
-                // Natural velocity changes from orbital mechanics (1170 m/s -> 80 m/s) are ignored
-                // This prevents constant recalculation during normal orbit dynamics
-                self.cached_trajectory_nodes.is_empty()
-            } else {
-                // Not in extended mode yet, check position/velocity changes normally
-                // This keeps short-term trajectory responsive to changes
-                self.cached_trajectory_nodes.is_empty() ||
-                (rocket.position() - self.cached_rocket_position).length() > 1.0 ||
-                (rocket.velocity() - self.cached_rocket_velocity).length() > 0.1
-            };
+            // STEP 1: Calculate initial 10 milestones when first going idle
+            if is_idle && self.milestone_nodes.is_empty() {
+                log::info!("Calculating initial 10 milestone nodes (300 steps / 150s apart)");
 
-            let (trajectory_points, self_intersects) = if !is_extended || rocket_moved {
-                // Not in extended mode OR rocket moved - clear cache and calculate full trajectory
-                self.cached_trajectory_nodes.clear();
-                self.trajectory_predictor.predict_trajectory(
+                // Calculate trajectory in ONE shot: 10 milestones × 300 steps = 3000 total steps
+                let (full_trajectory, _) = self.trajectory_predictor.predict_trajectory(
                     rocket,
                     &all_planets,
                     0.5,
-                    trajectory_steps,
-                    true,
-                )
-            } else if self.cached_trajectory_nodes.is_empty() {
-                // First time in extended mode - calculate full trajectory and cache first 10 nodes
-                let (full_trajectory, intersects) = self.trajectory_predictor.predict_trajectory(
-                    rocket,
-                    &all_planets,
-                    0.5,
-                    trajectory_steps,
-                    true,
+                    10 * self.milestone_step_size, // 3000 steps total
+                    false,
                 );
 
-                // Cache first 10 nodes (5 seconds at 0.5s per step)
-                if full_trajectory.len() >= 10 {
-                    self.cached_trajectory_nodes = full_trajectory[..10].to_vec();
-                    self.cached_rocket_position = rocket.position();
-                    self.cached_rocket_velocity = rocket.velocity();
-                    self.cached_rocket_mass = rocket.current_mass();
-                    log::info!("Cached first 10 trajectory nodes for stability");
+                // Extract every 300th point as a milestone
+                for i in 0..10 {
+                    let idx = i * self.milestone_step_size;
+                    if idx < full_trajectory.len() {
+                        self.milestone_nodes.push(full_trajectory[idx].clone());
+                    }
                 }
 
-                (full_trajectory, intersects)
-            } else if self.cached_trajectory_nodes.len() >= trajectory_steps {
+                log::info!("Calculated {} milestone nodes", self.milestone_nodes.len());
+            }
+
+            // STEP 2: Check if rocket reached milestone #5, calculate next 10 milestones
+            if is_idle && !self.milestone_nodes.is_empty() && !self.trajectory_orbit_detected {
+                // Find distance to milestone #5
+                if self.milestone_nodes.len() >= 5 {
+                    let milestone_5_pos = self.milestone_nodes[4].position; // Index 4 = milestone #5
+                    let distance_to_milestone_5 = (rocket.position() - milestone_5_pos).length();
+
+                    // If close to milestone #5, calculate next 10 milestones
+                    if distance_to_milestone_5 < 50.0 && self.current_milestone_index < 5 {
+                        self.current_milestone_index = 5;
+                        log::info!("Reached milestone #5, calculating next 10 milestones");
+
+                        // Calculate next 10 milestones starting from last milestone
+                        let last_milestone = self.milestone_nodes.last().unwrap();
+                        let (next_trajectory, _) = self.trajectory_predictor.predict_trajectory_from_state(
+                            last_milestone.position,
+                            last_milestone.velocity,
+                            rocket.current_mass(),
+                            &all_planets,
+                            0.5,
+                            10 * self.milestone_step_size, // Next 3000 steps
+                            false,
+                        );
+
+                        // Extract every 300th point as a milestone
+                        let mut new_milestones = Vec::new();
+                        for i in 1..=10 {  // Start at 1 to skip duplicate of last milestone
+                            let idx = i * self.milestone_step_size;
+                            if idx < next_trajectory.len() {
+                                let mut milestone = next_trajectory[idx].clone();
+                                milestone.time += last_milestone.time;
+                                new_milestones.push(milestone);
+                            }
+                        }
+
+                        // STEP 3: Check for orbit (do new milestones loop back to first milestones?)
+                        if !new_milestones.is_empty() && self.milestone_nodes.len() >= 10 {
+                            let mut loops_back = true;
+                            let tolerance = 50.0; // Position within 50 units
+
+                            // Compare new milestone positions with first 10 milestone positions
+                            for i in 0..new_milestones.len().min(10) {
+                                let new_pos = new_milestones[i].position;
+                                let old_pos = self.milestone_nodes[i].position;
+                                let distance = (new_pos - old_pos).length();
+
+                                if distance > tolerance {
+                                    loops_back = false;
+                                    break;
+                                }
+                            }
+
+                            if loops_back {
+                                self.trajectory_orbit_detected = true;
+                                log::info!("ORBIT DETECTED! Trajectory loops back to start. Total milestones: {}", self.milestone_nodes.len());
+                            } else {
+                                // Add new milestones to the list
+                                self.milestone_nodes.extend(new_milestones);
+                                log::info!("Added {} new milestones. Total: {}", new_milestones.len(), self.milestone_nodes.len());
+                            }
+                        } else {
+                            // Add new milestones to the list
+                            self.milestone_nodes.extend(new_milestones);
+                            log::info!("Added {} new milestones. Total: {}", new_milestones.len(), self.milestone_nodes.len());
+                        }
+                    }
+                }
+            }
+
+            // STEP 4: Draw milestones as simple circles
+            if !self.milestone_nodes.is_empty() {
+                // Collect milestone positions for drawing
+                let milestone_positions: Vec<Vec2> = self.milestone_nodes
+                    .iter()
+                    .map(|node| node.position)
+                    .collect();
+
+                // Draw trajectory color based on orbit detection
+                let trajectory_color = if self.trajectory_orbit_detected {
+                    Color::new(0.0, 1.0, 0.0, 0.7) // Green - orbit detected!
+                } else {
+                    Color::new(1.0, 1.0, 0.0, 0.7) // Yellow - still exploring
+                };
+
+                // Draw milestones as fixed markers (pass empty trajectory, just show markers)
+                self.trajectory_predictor.draw_trajectory(
+                    &[],  // No trajectory line, just markers
+                    trajectory_color,
+                    self.trajectory_orbit_detected,
+                    zoom_level,
+                    Some(&milestone_positions),
+                );
+            } else if !is_idle {
+                // Before idle threshold: show short predictive trajectory (100s)
+                let (short_trajectory, intersects) = self.trajectory_predictor.predict_trajectory(
+                    rocket,
+                    &all_planets,
+                    0.5,
+                    200, // 200 steps = 100 seconds of short trajectory
+                    false,
+                );
+
+                // Draw short trajectory with dynamic markers
+                let trajectory_color = if intersects {
+                    Color::new(0.0, 1.0, 0.0, 0.7) // Green
+                } else {
+                    Color::new(1.0, 1.0, 0.0, 0.7) // Yellow
+                };
+
+                self.trajectory_predictor.draw_trajectory(
+                    &short_trajectory,
+                    trajectory_color,
+                    intersects,
+                    zoom_level,
+                    None, // Use dynamic markers for short trajectory
+                );
+            }
+        }
+
+        // Reset to default camera for HUD
                 // Fully cached! Lock trajectory and track node-to-node travel
                 if !self.trajectory_locked {
                     self.trajectory_locked = true;
@@ -931,15 +1006,11 @@ impl SinglePlayerGame {
         self.game_time
     }
 
-    /// Reset trajectory cache and locked state (called on user input or zoom)
+    /// Reset trajectory milestones (called on user input or zoom)
     fn reset_trajectory_cache(&mut self) {
-        self.cached_trajectory_nodes.clear();
-        self.trajectory_locked = false;
-        self.current_node_index = 0;
-        self.consumed_trajectory_start = 0;
-        self.fixed_marker_positions.clear();
-        self.cached_preview_trajectory.clear();
-        self.preview_frames_since_recalc = 0;
+        self.milestone_nodes.clear();
+        self.current_milestone_index = 0;
+        self.trajectory_orbit_detected = false;
     }
 }
 
