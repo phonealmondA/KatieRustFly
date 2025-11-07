@@ -704,16 +704,18 @@ impl SinglePlayerGame {
                 }
 
                 // OPTIMIZATION: Preview trajectory caching (MASSIVE performance boost)
-                // Only recalculate preview every 10 frames instead of every frame
+                // Calculate preview ONCE and lock it - don't recalculate until cache grows
                 let remaining_steps = trajectory_steps - new_cached_count;
 
                 if remaining_steps > 0 {
-                    // Check if we need to recalculate preview
-                    let should_recalc = self.preview_frames_since_recalc >= 10 ||
-                                       self.cached_preview_trajectory.is_empty();
+                    // Only recalculate preview if:
+                    // 1. Preview is empty (first time), OR
+                    // 2. Preview is longer than remaining steps (cache has grown, preview is stale)
+                    let need_new_preview = self.cached_preview_trajectory.is_empty() ||
+                                          self.cached_preview_trajectory.len() > remaining_steps;
 
-                    if should_recalc {
-                        // Recalculate preview trajectory (expensive operation)
+                    if need_new_preview {
+                        // Calculate preview trajectory ONCE (expensive operation)
                         let last_cached_now = self.cached_trajectory_nodes.last().unwrap();
                         let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
                             last_cached_now.position,
@@ -730,9 +732,12 @@ impl SinglePlayerGame {
                             point.time += last_cached_now.time;
                         }
 
-                        // Cache the preview
+                        // Cache the preview and LOCK IT
                         self.cached_preview_trajectory = remaining_trajectory;
                         self.preview_frames_since_recalc = 0;
+
+                        log::info!("Calculated NEW preview trajectory ({} points) - will remain stable until cache grows",
+                            self.cached_preview_trajectory.len());
 
                         // Concatenate cached + preview for display
                         let mut full_trajectory = self.cached_trajectory_nodes.clone();
@@ -740,7 +745,7 @@ impl SinglePlayerGame {
 
                         (full_trajectory, intersects)
                     } else {
-                        // Reuse cached preview (HUGE savings!)
+                        // Reuse LOCKED preview (no recalculation!)
                         self.preview_frames_since_recalc += 1;
 
                         // Concatenate cached + preview for display
