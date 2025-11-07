@@ -522,32 +522,88 @@ impl SinglePlayerGame {
                 }
 
                 (full_trajectory, intersects)
-            } else {
-                // Use cached nodes and calculate from node 11 onward
-                let last_cached = &self.cached_trajectory_nodes[9];
+            } else if self.cached_trajectory_nodes.len() >= trajectory_steps {
+                // Fully cached! No calculation needed, just use cached trajectory
+                log::debug!("Using fully cached trajectory ({} nodes), no calculation needed",
+                    self.cached_trajectory_nodes.len());
 
-                // Calculate remaining trajectory from node 11 using cached state
-                let remaining_steps = trajectory_steps - 10;
-                let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
+                // Check if trajectory self-intersects by examining cached nodes
+                let mut intersects = false;
+                if self.cached_trajectory_nodes.len() > 20 {
+                    for i in 20..self.cached_trajectory_nodes.len() {
+                        let pos = self.cached_trajectory_nodes[i].position;
+                        // Check against early trajectory points
+                        for j in 0..(i.saturating_sub(20)) {
+                            let distance = (self.cached_trajectory_nodes[j].position - pos).length();
+                            if distance < 50.0 {
+                                intersects = true;
+                                break;
+                            }
+                        }
+                        if intersects { break; }
+                    }
+                }
+
+                (self.cached_trajectory_nodes.clone(), intersects)
+            } else {
+                // Incrementally cache one more node per frame until fully cached
+                let cached_count = self.cached_trajectory_nodes.len();
+                let last_cached = &self.cached_trajectory_nodes[cached_count - 1];
+
+                // Calculate just ONE more node from the last cached position
+                let (next_nodes, _) = self.trajectory_predictor.predict_trajectory_from_state(
                     last_cached.position,
                     last_cached.velocity,
                     self.cached_rocket_mass,
                     &all_planets,
                     0.5,
-                    remaining_steps,
-                    true,
+                    1, // Just ONE node
+                    false, // Don't check intersection for single node
                 );
 
-                // Adjust time values in remaining trajectory
-                for point in &mut remaining_trajectory {
-                    point.time += last_cached.time;
+                // Add the new node to cache (with adjusted time)
+                if let Some(mut new_node) = next_nodes.into_iter().next() {
+                    new_node.time += last_cached.time;
+                    self.cached_trajectory_nodes.push(new_node);
+
+                    let new_cached_count = self.cached_trajectory_nodes.len();
+                    if new_cached_count % 50 == 0 || new_cached_count == trajectory_steps {
+                        log::info!("Trajectory caching progress: {}/{} nodes ({:.1}%)",
+                            new_cached_count, trajectory_steps,
+                            (new_cached_count as f32 / trajectory_steps as f32) * 100.0);
+                    }
                 }
 
-                // Concatenate cached + remaining
-                let mut full_trajectory = self.cached_trajectory_nodes.clone();
-                full_trajectory.append(&mut remaining_trajectory);
+                // For display, calculate remaining trajectory from last cached node
+                let last_cached_now = self.cached_trajectory_nodes.last().unwrap();
+                let remaining_steps = trajectory_steps - self.cached_trajectory_nodes.len();
 
-                (full_trajectory, intersects)
+                if remaining_steps > 0 {
+                    let (mut remaining_trajectory, intersects) = self.trajectory_predictor.predict_trajectory_from_state(
+                        last_cached_now.position,
+                        last_cached_now.velocity,
+                        self.cached_rocket_mass,
+                        &all_planets,
+                        0.5,
+                        remaining_steps,
+                        true,
+                    );
+
+                    // Adjust time values in remaining trajectory
+                    for point in &mut remaining_trajectory {
+                        point.time += last_cached_now.time;
+                    }
+
+                    // Concatenate cached + remaining
+                    let mut full_trajectory = self.cached_trajectory_nodes.clone();
+                    full_trajectory.append(&mut remaining_trajectory);
+
+                    (full_trajectory, intersects)
+                } else {
+                    // All cached, check for intersection
+                    let intersects = false; // Will be checked in next frame when fully cached
+                    (self.cached_trajectory_nodes.clone(), intersects)
+                }
             };
 
             // Draw trajectory with color based on whether it self-intersects (completes orbit)
