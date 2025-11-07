@@ -376,17 +376,24 @@ impl SinglePlayerGame {
         // Get current zoom level for scaling trajectory line thickness
         let zoom_level = self.camera.zoom_level();
 
-        // Draw moon trajectory (if moon exists - it's the second planet)
-        // Moon has ORBIT_PERIOD = 420 seconds, so with 0.5s steps we need 840 steps for full orbit
+        // Draw moon trajectory (if moon exists)
+        // Identify Earth (large planet) and Moon (small planet) by radius
+        // HashMap iteration order is unpredictable, so we can't rely on index
         if all_planets.len() >= 2 {
-            let moon = all_planets[1]; // Second planet is the moon
-            let earth_only: Vec<&Planet> = vec![all_planets[0]]; // First planet is Earth
+            // Earth is the planet with the larger radius, Moon is the smaller one
+            let (earth, moon) = if all_planets[0].radius() > all_planets[1].radius() {
+                (all_planets[0], all_planets[1])
+            } else {
+                (all_planets[1], all_planets[0])
+            };
 
-            log::info!("Moon position: ({}, {}), velocity: ({}, {})",
+            log::info!("Moon position: ({}, {}), velocity: ({}, {}), radius: {}",
                 moon.position().x, moon.position().y,
-                moon.velocity().x, moon.velocity().y);
-            log::info!("Earth position: ({}, {})",
-                earth_only[0].position().x, earth_only[0].position().y);
+                moon.velocity().x, moon.velocity().y, moon.radius());
+            log::info!("Earth position: ({}, {}), radius: {}",
+                earth.position().x, earth.position().y, earth.radius());
+
+            let earth_only: Vec<&Planet> = vec![earth];
 
             let (moon_trajectory, moon_orbit_closes) = self.trajectory_predictor.predict_planet_trajectory(
                 moon,
