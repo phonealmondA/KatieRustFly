@@ -39,6 +39,11 @@ pub struct SinglePlayerGame {
     cached_rocket_velocity: Vec2, // Rocket velocity when cache was created
     cached_rocket_mass: f32, // Rocket mass when cache was created
 
+    // Node-to-node travel tracking (for stable locked trajectories)
+    trajectory_locked: bool, // True when trajectory is fully cached and stable
+    current_node_index: usize, // Index of the next node the rocket is traveling toward
+    consumed_trajectory_start: usize, // How many nodes have been consumed/passed
+
     // Save/load
     current_save_name: Option<String>,
     last_auto_save: f32,
@@ -62,6 +67,9 @@ impl SinglePlayerGame {
             cached_rocket_position: Vec2::ZERO,
             cached_rocket_velocity: Vec2::ZERO,
             cached_rocket_mass: 0.0,
+            trajectory_locked: false,
+            current_node_index: 0,
+            consumed_trajectory_start: 0,
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
@@ -269,7 +277,7 @@ impl SinglePlayerGame {
         if mouse_wheel != 0.0 {
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
             self.idle_timer = 0.0; // Reset idle timer on zoom
-            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
+            self.reset_trajectory_cache(); // Clear cache on zoom
         }
 
         // Keyboard zoom controls (E = zoom out, Q = zoom in)
@@ -277,12 +285,12 @@ impl SinglePlayerGame {
         if is_key_down(KeyCode::Q) {
             self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
             self.idle_timer = 0.0; // Reset idle timer on zoom
-            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
+            self.reset_trajectory_cache(); // Clear cache on zoom
         }
         if is_key_down(KeyCode::E) {
             self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
             self.idle_timer = 0.0; // Reset idle timer on zoom
-            self.cached_trajectory_nodes.clear(); // Clear cache on zoom
+            self.reset_trajectory_cache(); // Clear cache on zoom
         }
 
         SinglePlayerResult::Continue
@@ -332,7 +340,7 @@ impl SinglePlayerGame {
 
         if has_input {
             self.idle_timer = 0.0;
-            self.cached_trajectory_nodes.clear(); // Clear cache on input
+            self.reset_trajectory_cache(); // Clear cache on input
         }
 
         // Thrust level adjustment (comma to decrease, period to increase)
@@ -487,10 +495,15 @@ impl SinglePlayerGame {
                 200 // Normal steps (~100 seconds)
             };
 
-            // Check if rocket has moved significantly (clear cache if so)
-            let rocket_moved = self.cached_trajectory_nodes.is_empty() ||
+            // Check if rocket has moved significantly (only check if trajectory is NOT locked)
+            // Once trajectory is locked, we don't care about small movements - we follow the path node-to-node
+            let rocket_moved = if self.trajectory_locked {
+                false // Ignore movement when locked - we're following the predicted path
+            } else {
+                self.cached_trajectory_nodes.is_empty() ||
                 (rocket.position() - self.cached_rocket_position).length() > 1.0 ||
-                (rocket.velocity() - self.cached_rocket_velocity).length() > 0.1;
+                (rocket.velocity() - self.cached_rocket_velocity).length() > 0.1
+            };
 
             let (trajectory_points, self_intersects) = if !is_extended || rocket_moved {
                 // Not in extended mode OR rocket moved - clear cache and calculate full trajectory
@@ -523,9 +536,52 @@ impl SinglePlayerGame {
 
                 (full_trajectory, intersects)
             } else if self.cached_trajectory_nodes.len() >= trajectory_steps {
-                // Fully cached! No calculation needed, just use cached trajectory
-                log::debug!("Using fully cached trajectory ({} nodes), no calculation needed",
-                    self.cached_trajectory_nodes.len());
+                // Fully cached! Lock trajectory and track node-to-node travel
+                if !self.trajectory_locked {
+                    self.trajectory_locked = true;
+                    log::info!("Trajectory LOCKED - rocket will follow exact predicted path node-to-node");
+                }
+
+                // Track which node the rocket is traveling toward
+                // Nodes are marked every 20 points, so we track progress toward marker nodes
+                let marker_interval = 20;
+
+                // Find distance to current target node (every 20th point is a visible marker)
+                if self.current_node_index < self.cached_trajectory_nodes.len() {
+                    let target_node_idx = (self.current_node_index / marker_interval) * marker_interval;
+                    if target_node_idx < self.cached_trajectory_nodes.len() {
+                        let target_pos = self.cached_trajectory_nodes[target_node_idx].position;
+                        let distance_to_node = (rocket.position() - target_pos).length();
+
+                        // If close enough to node, advance to next marker node
+                        if distance_to_node < 30.0 {
+                            let next_marker = target_node_idx + marker_interval;
+                            if next_marker < self.cached_trajectory_nodes.len() {
+                                self.current_node_index = next_marker;
+                                log::info!("Reached node {}, advancing to next marker at index {}",
+                                    target_node_idx, next_marker);
+                            }
+                        }
+                    }
+                }
+
+                // Consume trajectory points as rocket passes them
+                // Remove points that are behind the rocket
+                let mut points_to_consume = 0;
+                for (idx, point) in self.cached_trajectory_nodes.iter().enumerate().skip(self.consumed_trajectory_start) {
+                    let distance = (rocket.position() - point.position).length();
+                    if distance < 10.0 && idx > self.consumed_trajectory_start {
+                        points_to_consume = idx;
+                    } else if idx > points_to_consume + 5 {
+                        // Stop checking once we're well ahead
+                        break;
+                    }
+                }
+
+                if points_to_consume > self.consumed_trajectory_start {
+                    self.consumed_trajectory_start = points_to_consume;
+                    log::debug!("Consumed trajectory up to index {}", points_to_consume);
+                }
 
                 // Check if trajectory self-intersects by examining cached nodes
                 let mut intersects = false;
@@ -606,6 +662,16 @@ impl SinglePlayerGame {
                 }
             };
 
+            // Only draw trajectory from consumed_trajectory_start onward (skip already-traveled segments)
+            let trajectory_to_draw = if self.trajectory_locked && self.consumed_trajectory_start > 0 {
+                // Skip consumed trajectory points
+                let start_idx = self.consumed_trajectory_start.min(trajectory_points.len());
+                &trajectory_points[start_idx..]
+            } else {
+                // Draw full trajectory if not locked or nothing consumed yet
+                &trajectory_points[..]
+            };
+
             // Draw trajectory with color based on whether it self-intersects (completes orbit)
             let trajectory_color = if self_intersects {
                 Color::new(0.0, 1.0, 0.0, 0.7) // Green if orbit closes
@@ -613,7 +679,7 @@ impl SinglePlayerGame {
                 Color::new(1.0, 1.0, 0.0, 0.7) // Yellow if orbit is open
             };
 
-            self.trajectory_predictor.draw_trajectory(&trajectory_points, trajectory_color, self_intersects, zoom_level);
+            self.trajectory_predictor.draw_trajectory(trajectory_to_draw, trajectory_color, self_intersects, zoom_level);
         }
 
         // Reset to default camera for HUD
@@ -755,6 +821,14 @@ impl SinglePlayerGame {
 
     pub fn game_time(&self) -> f32 {
         self.game_time
+    }
+
+    /// Reset trajectory cache and locked state (called on user input or zoom)
+    fn reset_trajectory_cache(&mut self) {
+        self.cached_trajectory_nodes.clear();
+        self.trajectory_locked = false;
+        self.current_node_index = 0;
+        self.consumed_trajectory_start = 0;
     }
 }
 
