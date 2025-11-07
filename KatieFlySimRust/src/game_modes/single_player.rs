@@ -498,10 +498,18 @@ impl SinglePlayerGame {
             };
 
             // Check if rocket has moved significantly (only check if trajectory is NOT locked)
-            // Once trajectory is locked, we don't care about small movements - we follow the path node-to-node
+            // OPTIMIZATION: When in extended mode (idle > 10s), IGNORE velocity/position changes
+            // from orbital mechanics. Only reset on user input (handled by reset_trajectory_cache())
             let rocket_moved = if self.trajectory_locked {
-                false // Ignore movement when locked - we're following the predicted path
+                false // Already locked, follow the predicted path
+            } else if is_extended {
+                // In extended mode (idle > 10s), ONLY reset if cache is empty
+                // Natural velocity changes from orbital mechanics (1170 m/s -> 80 m/s) are ignored
+                // This prevents constant recalculation during normal orbit dynamics
+                self.cached_trajectory_nodes.is_empty()
             } else {
+                // Not in extended mode yet, check position/velocity changes normally
+                // This keeps short-term trajectory responsive to changes
                 self.cached_trajectory_nodes.is_empty() ||
                 (rocket.position() - self.cached_rocket_position).length() > 1.0 ||
                 (rocket.velocity() - self.cached_rocket_velocity).length() > 0.1
