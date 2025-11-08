@@ -34,9 +34,10 @@ pub struct SinglePlayerGame {
     idle_timer: f32, // Time since last input (for auto-expanding trajectory)
 
     // Milestone-based trajectory system (MUCH simpler and more efficient)
-    milestone_nodes: Vec<TrajectoryPoint>, // 10 milestone nodes, 20 steps (10s) apart
+    trajectory_points: Vec<TrajectoryPoint>, // ALL trajectory points for smooth curved lines
+    milestone_positions: Vec<Vec2>, // Milestone marker positions (every 20 steps / 10s)
     milestone_step_size: usize, // Steps between each milestone (20 = 10 seconds)
-    current_milestone_index: usize, // Which milestone rocket is currently traveling toward
+    next_milestone_to_calculate: usize, // Which milestone triggers next calculation (every 3rd)
     trajectory_orbit_detected: bool, // True when trajectory loops back to start
 
     // Save/load
@@ -58,9 +59,10 @@ impl SinglePlayerGame {
             selected_thrust_level: 0.0, // Start at 0% thrust
             rotation_input: 0.0,
             idle_timer: 0.0, // Start at 0
-            milestone_nodes: Vec::new(),
+            trajectory_points: Vec::new(),
+            milestone_positions: Vec::new(),
             milestone_step_size: 20, // 20 steps = 10 seconds between milestones
-            current_milestone_index: 0,
+            next_milestone_to_calculate: 3, // Trigger at 3rd milestone
             trajectory_orbit_detected: false,
             current_save_name: None,
             last_auto_save: 0.0,
@@ -478,13 +480,14 @@ impl SinglePlayerGame {
 
         // MILESTONE-BASED TRAJECTORY SYSTEM (Much simpler and more efficient!)
         // Calculate 10 milestones, 20 steps (10s) apart
-        // Wait until milestone 5 reached, then calculate next 10
+        // Wait until milestone 3 reached, then calculate next 10
         // Detect orbit when milestones loop back to start
+        // Remove trajectory behind rocket as it travels
         if let Some(rocket) = self.world.get_active_rocket() {
             let is_idle = self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS;
 
             // STEP 1: Calculate initial 10 milestones when first going idle
-            if is_idle && self.milestone_nodes.is_empty() {
+            if is_idle && self.trajectory_points.is_empty() {
                 log::info!("Calculating initial 10 milestone nodes (20 steps / 10s apart)");
 
                 // Calculate trajectory in ONE shot: 10 milestones × 20 steps = 200 total steps
@@ -496,34 +499,37 @@ impl SinglePlayerGame {
                     false,
                 );
 
-                // Extract every 20th point as a milestone
+                // Store ALL points for smooth curved lines
+                self.trajectory_points = full_trajectory;
+
+                // Extract milestone positions (every 20th point)
                 for i in 0..10 {
                     let idx = i * self.milestone_step_size;
-                    if idx < full_trajectory.len() {
-                        self.milestone_nodes.push(full_trajectory[idx].clone());
+                    if idx < self.trajectory_points.len() {
+                        self.milestone_positions.push(self.trajectory_points[idx].position);
                     }
                 }
 
-                log::info!("Calculated {} milestone nodes", self.milestone_nodes.len());
+                log::info!("Calculated {} trajectory points with {} milestones",
+                    self.trajectory_points.len(), self.milestone_positions.len());
             }
 
-            // STEP 2: Check if rocket reached milestone #5, calculate next 10 milestones
-            if is_idle && !self.milestone_nodes.is_empty() && !self.trajectory_orbit_detected {
-                // Find distance to milestone #5
-                if self.milestone_nodes.len() >= 5 {
-                    let milestone_5_pos = self.milestone_nodes[4].position; // Index 4 = milestone #5
-                    let distance_to_milestone_5 = (rocket.position() - milestone_5_pos).length();
+            // STEP 2: Check if rocket reached milestone #3, calculate next 10 milestones
+            if is_idle && !self.trajectory_points.is_empty() && !self.trajectory_orbit_detected {
+                // Check if we need to calculate more milestones
+                if self.milestone_positions.len() >= self.next_milestone_to_calculate {
+                    let milestone_pos = self.milestone_positions[self.next_milestone_to_calculate - 1];
+                    let distance_to_milestone = (rocket.position() - milestone_pos).length();
 
-                    // If close to milestone #5, calculate next 10 milestones
-                    if distance_to_milestone_5 < 50.0 && self.current_milestone_index < 5 {
-                        self.current_milestone_index = 5;
-                        log::info!("Reached milestone #5, calculating next 10 milestones");
+                    // If close to the milestone, calculate next 10 milestones
+                    if distance_to_milestone < 50.0 {
+                        log::info!("Reached milestone #{}, calculating next 10 milestones", self.next_milestone_to_calculate);
 
-                        // Calculate next 10 milestones starting from last milestone
-                        let last_milestone = self.milestone_nodes.last().unwrap();
+                        // Calculate next 10 milestones starting from last trajectory point
+                        let last_point = self.trajectory_points.last().unwrap();
                         let (next_trajectory, _) = self.trajectory_predictor.predict_trajectory_from_state(
-                            last_milestone.position,
-                            last_milestone.velocity,
+                            last_point.position,
+                            last_point.velocity,
                             rocket.current_mass(),
                             &all_planets,
                             0.5,
@@ -531,26 +537,35 @@ impl SinglePlayerGame {
                             false,
                         );
 
-                        // Extract every 20th point as a milestone
-                        let mut new_milestones = Vec::new();
-                        for i in 1..=10 {  // Start at 1 to skip duplicate of last milestone
-                            let idx = i * self.milestone_step_size;
-                            if idx < next_trajectory.len() {
-                                let mut milestone = next_trajectory[idx].clone();
-                                milestone.time += last_milestone.time;
-                                new_milestones.push(milestone);
+                        // Adjust time offsets for new trajectory points
+                        let time_offset = last_point.time;
+                        let mut adjusted_trajectory: Vec<TrajectoryPoint> = next_trajectory
+                            .into_iter()
+                            .skip(1) // Skip first point to avoid duplicate
+                            .map(|mut p| {
+                                p.time += time_offset;
+                                p
+                            })
+                            .collect();
+
+                        // Extract new milestone positions (every 20th point from the new trajectory)
+                        let mut new_milestone_positions = Vec::new();
+                        for i in 1..=10 {
+                            let idx = i * self.milestone_step_size - 1; // -1 because we skipped first point
+                            if idx < adjusted_trajectory.len() {
+                                new_milestone_positions.push(adjusted_trajectory[idx].position);
                             }
                         }
 
                         // STEP 3: Check for orbit (do new milestones loop back to first milestones?)
-                        if !new_milestones.is_empty() && self.milestone_nodes.len() >= 10 {
+                        if !new_milestone_positions.is_empty() && self.milestone_positions.len() >= 10 {
                             let mut loops_back = true;
                             let tolerance = 50.0; // Position within 50 units
 
                             // Compare new milestone positions with first 10 milestone positions
-                            for i in 0..new_milestones.len().min(10) {
-                                let new_pos = new_milestones[i].position;
-                                let old_pos = self.milestone_nodes[i].position;
+                            for i in 0..new_milestone_positions.len().min(10) {
+                                let new_pos = new_milestone_positions[i];
+                                let old_pos = self.milestone_positions[i];
                                 let distance = (new_pos - old_pos).length();
 
                                 if distance > tolerance {
@@ -561,31 +576,59 @@ impl SinglePlayerGame {
 
                             if loops_back {
                                 self.trajectory_orbit_detected = true;
-                                log::info!("ORBIT DETECTED! Trajectory loops back to start. Total milestones: {}", self.milestone_nodes.len());
+                                log::info!("ORBIT DETECTED! Trajectory loops back to start. Total milestones: {}",
+                                    self.milestone_positions.len());
                             } else {
-                                // Add new milestones to the list
-                                let new_count = new_milestones.len();
-                                self.milestone_nodes.extend(new_milestones);
-                                log::info!("Added {} new milestones. Total: {}", new_count, self.milestone_nodes.len());
+                                // Add new trajectory points and milestones
+                                let new_point_count = adjusted_trajectory.len();
+                                self.trajectory_points.append(&mut adjusted_trajectory);
+                                self.milestone_positions.extend(new_milestone_positions);
+                                self.next_milestone_to_calculate += 3; // Trigger every 3rd milestone
+                                log::info!("Added {} trajectory points. Total: {} points, {} milestones",
+                                    new_point_count, self.trajectory_points.len(), self.milestone_positions.len());
                             }
                         } else {
-                            // Add new milestones to the list
-                            let new_count = new_milestones.len();
-                            self.milestone_nodes.extend(new_milestones);
-                            log::info!("Added {} new milestones. Total: {}", new_count, self.milestone_nodes.len());
+                            // Add new trajectory points and milestones
+                            let new_point_count = adjusted_trajectory.len();
+                            self.trajectory_points.append(&mut adjusted_trajectory);
+                            self.milestone_positions.extend(new_milestone_positions);
+                            self.next_milestone_to_calculate += 3; // Trigger every 3rd milestone
+                            log::info!("Added {} trajectory points. Total: {} points, {} milestones",
+                                new_point_count, self.trajectory_points.len(), self.milestone_positions.len());
                         }
                     }
                 }
             }
 
-            // STEP 4: Draw milestones with connecting lines
-            if !self.milestone_nodes.is_empty() {
-                // Collect milestone positions for drawing
-                let milestone_positions: Vec<Vec2> = self.milestone_nodes
-                    .iter()
-                    .map(|node| node.position)
-                    .collect();
+            // STEP 3.5: Remove trajectory points behind the rocket
+            if !self.trajectory_points.is_empty() {
+                let rocket_pos = rocket.position();
+                let mut points_to_remove = 0;
 
+                // Find how many points are behind the rocket (within 30 units)
+                for point in &self.trajectory_points {
+                    let distance = (point.position - rocket_pos).length();
+                    if distance < 30.0 {
+                        points_to_remove += 1;
+                    } else {
+                        break; // Stop when we find points ahead
+                    }
+                }
+
+                // Remove traveled points
+                if points_to_remove > 0 {
+                    self.trajectory_points.drain(0..points_to_remove);
+
+                    // Also remove any milestone positions that are behind
+                    let milestones_to_remove = points_to_remove / self.milestone_step_size;
+                    if milestones_to_remove > 0 && milestones_to_remove <= self.milestone_positions.len() {
+                        self.milestone_positions.drain(0..milestones_to_remove);
+                    }
+                }
+            }
+
+            // STEP 4: Draw trajectory with smooth curves
+            if !self.trajectory_points.is_empty() {
                 // Draw trajectory color based on orbit detection
                 let trajectory_color = if self.trajectory_orbit_detected {
                     Color::new(0.0, 1.0, 0.0, 0.7) // Green - orbit detected!
@@ -593,13 +636,13 @@ impl SinglePlayerGame {
                     Color::new(1.0, 1.0, 0.0, 0.7) // Yellow - still exploring
                 };
 
-                // Draw lines between milestones AND show milestone markers
+                // Draw smooth curved lines with milestone markers
                 self.trajectory_predictor.draw_trajectory(
-                    &self.milestone_nodes,  // Draw lines connecting milestones
+                    &self.trajectory_points,  // Draw ALL points for smooth curves
                     trajectory_color,
                     self.trajectory_orbit_detected,
                     zoom_level,
-                    Some(&milestone_positions), // Also draw circles at milestones
+                    Some(&self.milestone_positions), // Show milestone markers
                 );
             } else if !is_idle {
                 // Before idle threshold: show short predictive trajectory (100s)
@@ -771,8 +814,9 @@ impl SinglePlayerGame {
 
     /// Reset trajectory milestones (called on user input or zoom)
     fn reset_trajectory_cache(&mut self) {
-        self.milestone_nodes.clear();
-        self.current_milestone_index = 0;
+        self.trajectory_points.clear();
+        self.milestone_positions.clear();
+        self.next_milestone_to_calculate = 3;
         self.trajectory_orbit_detected = false;
     }
 }
