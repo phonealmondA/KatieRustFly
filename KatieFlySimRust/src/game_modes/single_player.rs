@@ -578,7 +578,7 @@ impl SinglePlayerGame {
                 }
             }
 
-            // STEP 4: Draw milestones as simple circles
+            // STEP 4: Draw milestones with connecting lines
             if !self.milestone_nodes.is_empty() {
                 // Collect milestone positions for drawing
                 let milestone_positions: Vec<Vec2> = self.milestone_nodes
@@ -593,13 +593,13 @@ impl SinglePlayerGame {
                     Color::new(1.0, 1.0, 0.0, 0.7) // Yellow - still exploring
                 };
 
-                // Draw milestones as fixed markers (pass empty trajectory, just show markers)
+                // Draw lines between milestones AND show milestone markers
                 self.trajectory_predictor.draw_trajectory(
-                    &[],  // No trajectory line, just markers
+                    &self.milestone_nodes,  // Draw lines connecting milestones
                     trajectory_color,
                     self.trajectory_orbit_detected,
                     zoom_level,
-                    Some(&milestone_positions),
+                    Some(&milestone_positions), // Also draw circles at milestones
                 );
             } else if !is_idle {
                 // Before idle threshold: show short predictive trajectory (100s)
