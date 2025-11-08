@@ -34,8 +34,8 @@ pub struct SinglePlayerGame {
     idle_timer: f32, // Time since last input (for auto-expanding trajectory)
 
     // Milestone-based trajectory system (MUCH simpler and more efficient)
-    milestone_nodes: Vec<TrajectoryPoint>, // 10 milestone nodes, 300 steps (150s) apart
-    milestone_step_size: usize, // Steps between each milestone (300 = 150 seconds)
+    milestone_nodes: Vec<TrajectoryPoint>, // 10 milestone nodes, 20 steps (10s) apart
+    milestone_step_size: usize, // Steps between each milestone (20 = 10 seconds)
     current_milestone_index: usize, // Which milestone rocket is currently traveling toward
     trajectory_orbit_detected: bool, // True when trajectory loops back to start
 
@@ -59,7 +59,7 @@ impl SinglePlayerGame {
             rotation_input: 0.0,
             idle_timer: 0.0, // Start at 0
             milestone_nodes: Vec::new(),
-            milestone_step_size: 300, // 300 steps = 150 seconds between milestones
+            milestone_step_size: 20, // 20 steps = 10 seconds between milestones
             current_milestone_index: 0,
             trajectory_orbit_detected: false,
             current_save_name: None,
@@ -477,7 +477,7 @@ impl SinglePlayerGame {
         }
 
         // MILESTONE-BASED TRAJECTORY SYSTEM (Much simpler and more efficient!)
-        // Calculate 10 milestones, 300 steps (150s) apart
+        // Calculate 10 milestones, 20 steps (10s) apart
         // Wait until milestone 5 reached, then calculate next 10
         // Detect orbit when milestones loop back to start
         if let Some(rocket) = self.world.get_active_rocket() {
@@ -485,18 +485,18 @@ impl SinglePlayerGame {
 
             // STEP 1: Calculate initial 10 milestones when first going idle
             if is_idle && self.milestone_nodes.is_empty() {
-                log::info!("Calculating initial 10 milestone nodes (300 steps / 150s apart)");
+                log::info!("Calculating initial 10 milestone nodes (20 steps / 10s apart)");
 
-                // Calculate trajectory in ONE shot: 10 milestones × 300 steps = 3000 total steps
+                // Calculate trajectory in ONE shot: 10 milestones × 20 steps = 200 total steps
                 let (full_trajectory, _) = self.trajectory_predictor.predict_trajectory(
                     rocket,
                     &all_planets,
                     0.5,
-                    10 * self.milestone_step_size, // 3000 steps total
+                    10 * self.milestone_step_size, // 200 steps total
                     false,
                 );
 
-                // Extract every 300th point as a milestone
+                // Extract every 20th point as a milestone
                 for i in 0..10 {
                     let idx = i * self.milestone_step_size;
                     if idx < full_trajectory.len() {
@@ -527,11 +527,11 @@ impl SinglePlayerGame {
                             rocket.current_mass(),
                             &all_planets,
                             0.5,
-                            10 * self.milestone_step_size, // Next 3000 steps
+                            10 * self.milestone_step_size, // Next 200 steps
                             false,
                         );
 
-                        // Extract every 300th point as a milestone
+                        // Extract every 20th point as a milestone
                         let mut new_milestones = Vec::new();
                         for i in 1..=10 {  // Start at 1 to skip duplicate of last milestone
                             let idx = i * self.milestone_step_size;
