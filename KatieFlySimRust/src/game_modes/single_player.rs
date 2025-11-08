@@ -478,16 +478,14 @@ impl SinglePlayerGame {
             log::warn!("Not enough planets for moon trajectory: {}", all_planets.len());
         }
 
-        // MILESTONE-BASED TRAJECTORY SYSTEM (Much simpler and more efficient!)
+        // MILESTONE-BASED TRAJECTORY SYSTEM
         // Calculate 10 milestones, 20 steps (10s) apart
         // Wait until milestone 3 reached, then calculate next 10
         // Detect orbit when milestones loop back to start
         // Remove trajectory behind rocket as it travels
         if let Some(rocket) = self.world.get_active_rocket() {
-            let is_idle = self.idle_timer > GameConstants::TRAJECTORY_IDLE_EXPAND_SECONDS;
-
-            // STEP 1: Calculate initial 10 milestones when first going idle
-            if is_idle && self.trajectory_points.is_empty() {
+            // STEP 1: Calculate initial 10 milestones
+            if self.trajectory_points.is_empty() {
                 log::info!("Calculating initial 10 milestone nodes (20 steps / 10s apart)");
 
                 // Calculate trajectory in ONE shot: 10 milestones × 20 steps = 200 total steps
@@ -515,7 +513,7 @@ impl SinglePlayerGame {
             }
 
             // STEP 2: Check if rocket reached milestone #3, calculate next 10 milestones
-            if is_idle && !self.trajectory_points.is_empty() && !self.trajectory_orbit_detected {
+            if !self.trajectory_points.is_empty() && !self.trajectory_orbit_detected {
                 // Check if we need to calculate more milestones
                 if self.milestone_positions.len() >= self.next_milestone_to_calculate {
                     let milestone_pos = self.milestone_positions[self.next_milestone_to_calculate - 1];
@@ -643,30 +641,6 @@ impl SinglePlayerGame {
                     self.trajectory_orbit_detected,
                     zoom_level,
                     Some(&self.milestone_positions), // Show milestone markers
-                );
-            } else if !is_idle {
-                // Before idle threshold: show short predictive trajectory (100s)
-                let (short_trajectory, intersects) = self.trajectory_predictor.predict_trajectory(
-                    rocket,
-                    &all_planets,
-                    0.5,
-                    200, // 200 steps = 100 seconds of short trajectory
-                    false,
-                );
-
-                // Draw short trajectory with dynamic markers
-                let trajectory_color = if intersects {
-                    Color::new(0.0, 1.0, 0.0, 0.7) // Green
-                } else {
-                    Color::new(1.0, 1.0, 0.0, 0.7) // Yellow
-                };
-
-                self.trajectory_predictor.draw_trajectory(
-                    &short_trajectory,
-                    trajectory_color,
-                    intersects,
-                    zoom_level,
-                    None, // Use dynamic markers for short trajectory
                 );
             }
         }
