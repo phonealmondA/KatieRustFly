@@ -115,13 +115,29 @@ impl SavedRocket {
     }
 }
 
-/// Saved satellite data
+/// Saved satellite data (extended for comprehensive state)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSatellite {
     pub id: EntityId,
     pub position: SavedVector2,
     pub velocity: SavedVector2,
+    pub rotation: f32,
     pub fuel: f32,
+
+    // Orbital maintenance state
+    pub target_orbit_radius: f32,
+    pub is_maintaining_orbit: bool,
+    pub last_maintenance_time: f32,
+    pub maintenance_interval: f32,
+    pub maintenance_fuel_reserve: f32,
+
+    // Fuel collection state
+    pub is_collecting_fuel: bool,
+    pub fuel_source_planet_id: Option<usize>,
+    pub collection_rate: f32,
+
+    // Network configuration
+    pub transfer_range: f32,
 }
 
 impl SavedSatellite {
@@ -132,18 +148,46 @@ impl SavedSatellite {
             id,
             position: satellite.position().into(),
             velocity: satellite.velocity().into(),
+            rotation: satellite.rotation(),
             fuel: satellite.current_fuel(),
+            target_orbit_radius: satellite.target_orbit_radius(),
+            is_maintaining_orbit: satellite.is_maintaining_orbit(),
+            last_maintenance_time: satellite.last_maintenance_time(),
+            maintenance_interval: satellite.maintenance_interval(),
+            maintenance_fuel_reserve: satellite.maintenance_fuel_reserve(),
+            is_collecting_fuel: satellite.is_collecting_fuel(),
+            fuel_source_planet_id: satellite.fuel_source_planet_id(),
+            collection_rate: satellite.collection_rate(),
+            transfer_range: satellite.transfer_range(),
         }
     }
 
     pub fn to_satellite(&self) -> (EntityId, Satellite) {
+        use crate::game_constants::colors;
+
         let mut satellite = Satellite::new(
             self.position.clone().into(),
             self.velocity.clone().into(),
-            Color::new(0.0, 1.0, 1.0, 1.0), // CYAN
+            colors::SATELLITE_BODY_COLOR,
         );
 
+        // Restore fuel
         satellite.add_fuel(self.fuel - satellite.current_fuel());
+
+        // Restore orbital maintenance state
+        satellite.set_target_orbit_radius(self.target_orbit_radius);
+        satellite.set_is_maintaining_orbit(self.is_maintaining_orbit);
+        satellite.set_last_maintenance_time(self.last_maintenance_time);
+        satellite.set_maintenance_interval(self.maintenance_interval);
+        satellite.set_maintenance_fuel_reserve(self.maintenance_fuel_reserve);
+
+        // Restore fuel collection state
+        satellite.set_is_collecting_fuel(self.is_collecting_fuel);
+        satellite.set_fuel_source_planet_id(self.fuel_source_planet_id);
+        satellite.set_collection_rate(self.collection_rate);
+
+        // Restore network configuration
+        satellite.set_transfer_range(self.transfer_range);
 
         (self.id, satellite)
     }

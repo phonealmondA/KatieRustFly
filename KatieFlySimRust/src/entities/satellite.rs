@@ -108,8 +108,16 @@ impl Satellite {
         self.is_maintaining_orbit = maintaining;
     }
 
+    pub fn target_orbit_radius(&self) -> f32 {
+        self.target_orbit_radius
+    }
+
     pub fn set_target_orbit_radius(&mut self, radius: f32) {
         self.target_orbit_radius = radius;
+    }
+
+    pub fn set_is_maintaining_orbit(&mut self, maintaining: bool) {
+        self.is_maintaining_orbit = maintaining;
     }
 
     /// Add fuel to satellite
@@ -188,10 +196,18 @@ impl Satellite {
         self.maintenance_fuel_reserve
     }
 
+    pub fn set_maintenance_fuel_reserve(&mut self, reserve: f32) {
+        self.maintenance_fuel_reserve = reserve;
+    }
+
     // === Fuel Collection ===
 
     pub fn is_collecting_fuel(&self) -> bool {
         self.is_collecting_fuel
+    }
+
+    pub fn set_is_collecting_fuel(&mut self, collecting: bool) {
+        self.is_collecting_fuel = collecting;
     }
 
     pub fn start_fuel_collection(&mut self, planet_id: usize) {
@@ -206,6 +222,14 @@ impl Satellite {
 
     pub fn fuel_source_planet_id(&self) -> Option<usize> {
         self.fuel_source_planet_id
+    }
+
+    pub fn set_fuel_source_planet_id(&mut self, planet_id: Option<usize>) {
+        self.fuel_source_planet_id = planet_id;
+    }
+
+    pub fn collection_rate(&self) -> f32 {
+        self.collection_rate
     }
 
     pub fn set_collection_rate(&mut self, rate: f32) {
