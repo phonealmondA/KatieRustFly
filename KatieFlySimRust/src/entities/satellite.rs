@@ -17,10 +17,24 @@ pub struct Satellite {
     max_mass: f32,
     current_fuel: f32,
     max_fuel: f32,
+    maintenance_fuel_reserve: f32,
 
     // Orbital maintenance
     target_orbit_radius: f32,
     is_maintaining_orbit: bool,
+    last_maintenance_time: f32,
+    maintenance_interval: f32,
+
+    // Fuel collection
+    is_collecting_fuel: bool,
+    fuel_source_planet_id: Option<usize>,
+    collection_rate: f32,
+
+    // Network & communication
+    nearby_satellites: Vec<usize>,
+    nearby_rockets: Vec<usize>,
+    transfer_range: f32,
+    is_transferring_fuel: bool,
 }
 
 impl Satellite {
@@ -33,8 +47,18 @@ impl Satellite {
             max_mass: GameConstants::SATELLITE_MAX_MASS,
             current_fuel: GameConstants::SATELLITE_STARTING_FUEL,
             max_fuel: GameConstants::SATELLITE_MAX_FUEL,
+            maintenance_fuel_reserve: 20.0,
             target_orbit_radius: 0.0,
             is_maintaining_orbit: false,
+            last_maintenance_time: 0.0,
+            maintenance_interval: 5.0,
+            is_collecting_fuel: false,
+            fuel_source_planet_id: None,
+            collection_rate: 1.0,
+            nearby_satellites: Vec::new(),
+            nearby_rockets: Vec::new(),
+            transfer_range: 500.0,
+            is_transferring_fuel: false,
         }
     }
 
@@ -141,6 +165,120 @@ impl Satellite {
     pub fn rotation(&self) -> f32 {
         self.rotation
     }
+
+    // === Maintenance ===
+
+    pub fn set_maintenance_interval(&mut self, interval: f32) {
+        self.maintenance_interval = interval;
+    }
+
+    pub fn maintenance_interval(&self) -> f32 {
+        self.maintenance_interval
+    }
+
+    pub fn last_maintenance_time(&self) -> f32 {
+        self.last_maintenance_time
+    }
+
+    pub fn set_last_maintenance_time(&mut self, time: f32) {
+        self.last_maintenance_time = time;
+    }
+
+    pub fn maintenance_fuel_reserve(&self) -> f32 {
+        self.maintenance_fuel_reserve
+    }
+
+    // === Fuel Collection ===
+
+    pub fn is_collecting_fuel(&self) -> bool {
+        self.is_collecting_fuel
+    }
+
+    pub fn start_fuel_collection(&mut self, planet_id: usize) {
+        self.is_collecting_fuel = true;
+        self.fuel_source_planet_id = Some(planet_id);
+    }
+
+    pub fn stop_fuel_collection(&mut self) {
+        self.is_collecting_fuel = false;
+        self.fuel_source_planet_id = None;
+    }
+
+    pub fn fuel_source_planet_id(&self) -> Option<usize> {
+        self.fuel_source_planet_id
+    }
+
+    pub fn set_collection_rate(&mut self, rate: f32) {
+        self.collection_rate = rate;
+    }
+
+    // === Network & Communication ===
+
+    pub fn add_nearby_satellite(&mut self, satellite_id: usize) {
+        if !self.nearby_satellites.contains(&satellite_id) {
+            self.nearby_satellites.push(satellite_id);
+        }
+    }
+
+    pub fn remove_nearby_satellite(&mut self, satellite_id: usize) {
+        self.nearby_satellites.retain(|&id| id != satellite_id);
+    }
+
+    pub fn nearby_satellites(&self) -> &[usize] {
+        &self.nearby_satellites
+    }
+
+    pub fn clear_nearby_satellites(&mut self) {
+        self.nearby_satellites.clear();
+    }
+
+    pub fn add_nearby_rocket(&mut self, rocket_id: usize) {
+        if !self.nearby_rockets.contains(&rocket_id) {
+            self.nearby_rockets.push(rocket_id);
+        }
+    }
+
+    pub fn remove_nearby_rocket(&mut self, rocket_id: usize) {
+        self.nearby_rockets.retain(|&id| id != rocket_id);
+    }
+
+    pub fn nearby_rockets(&self) -> &[usize] {
+        &self.nearby_rockets
+    }
+
+    pub fn clear_nearby_rockets(&mut self) {
+        self.nearby_rockets.clear();
+    }
+
+    pub fn transfer_range(&self) -> f32 {
+        self.transfer_range
+    }
+
+    pub fn set_transfer_range(&mut self, range: f32) {
+        self.transfer_range = range;
+    }
+
+    pub fn is_transferring_fuel(&self) -> bool {
+        self.is_transferring_fuel
+    }
+
+    pub fn set_transferring_fuel(&mut self, transferring: bool) {
+        self.is_transferring_fuel = transferring;
+    }
+
+    /// Transfer fuel to another satellite or rocket
+    pub fn transfer_fuel(&mut self, amount: f32) -> f32 {
+        // Reserve maintenance fuel
+        let available_fuel = (self.current_fuel - self.maintenance_fuel_reserve).max(0.0);
+        let transfer_amount = amount.min(available_fuel);
+
+        if transfer_amount > 0.0 {
+            self.consume_fuel(transfer_amount);
+            transfer_amount
+        } else {
+            0.0
+        }
+    }
 }
 
 impl GameObject for Satellite {
@@ -151,8 +289,11 @@ impl GameObject for Satellite {
         // Update rotation for visual effect
         self.rotation += delta_time * 0.5; // Slow rotation
 
-        // TODO: Implement orbital maintenance logic
-        // TODO: Implement automatic fuel collection
+        // Orbital maintenance logic is handled by OrbitMaintenance system in SatelliteManager
+        // Automatic fuel collection is handled by SatelliteManager
+
+        // Update maintenance time
+        self.last_maintenance_time += delta_time;
     }
 
     fn draw(&self) {

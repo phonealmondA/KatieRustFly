@@ -4,6 +4,7 @@ pub mod world;
 pub mod fuel_transfer_network;
 pub mod orbit_maintenance;
 pub mod vehicle_manager;
+pub mod satellite_manager;
 
 pub use world::{World, EntityId};
 pub use fuel_transfer_network::{
@@ -15,3 +16,7 @@ pub use orbit_maintenance::{
     ManeuverType, MaintenanceConfig,
 };
 pub use vehicle_manager::{VehicleManager, VisualizationOptions};
+pub use satellite_manager::{
+    SatelliteManager, SatelliteStatus, SatelliteNetworkStats,
+    SatelliteManagerConfig,
+};
