@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use crate::entities::{GameObject, Planet, Rocket, Satellite};
 use crate::physics::GravitySimulator;
+use crate::systems::SatelliteManager;
+use crate::game_constants::GameConstants;
 
 /// Entity ID type for safe references
 pub type EntityId = usize;
@@ -22,6 +24,9 @@ pub struct World {
     // Physics
     gravity_simulator: GravitySimulator,
 
+    // Satellite management system
+    satellite_manager: SatelliteManager,
+
     // Active player rocket (for single player)
     active_rocket_id: Option<EntityId>,
 }
@@ -34,6 +39,7 @@ impl World {
             satellites: HashMap::new(),
             next_id: 0,
             gravity_simulator: GravitySimulator::new(),
+            satellite_manager: SatelliteManager::new(),
             active_rocket_id: None,
         }
     }
@@ -255,6 +261,12 @@ impl World {
             satellite.update(delta_time);
         }
 
+        // Satellite fuel management (collection from planets)
+        self.handle_satellite_fuel_collection(delta_time);
+
+        // Satellite-to-rocket fuel transfers (automatic)
+        self.handle_satellite_to_rocket_transfers(delta_time);
+
         // Check for collisions/landings between rockets and planets
         let mut rockets_to_land = Vec::new();
         for (rocket_id, rocket) in &self.rockets {
@@ -386,6 +398,99 @@ impl World {
 
     pub fn gravity_simulator_mut(&mut self) -> &mut GravitySimulator {
         &mut self.gravity_simulator
+    }
+
+    // === Satellite Fuel Management ===
+
+    /// Handle automatic fuel collection from planets to satellites
+    fn handle_satellite_fuel_collection(&mut self, delta_time: f32) {
+        // Collect satellite-planet pairs that are in range
+        let mut collections = Vec::new();
+
+        for (sat_id, satellite) in &self.satellites {
+            for (planet_id, planet) in &self.planets {
+                // Check if planet can provide fuel
+                if planet.mass() < GameConstants::MIN_PLANET_MASS_FOR_COLLECTION {
+                    continue;
+                }
+
+                // Check distance
+                let distance = (satellite.position() - planet.position()).length();
+                let collection_range = planet.radius() + GameConstants::FUEL_COLLECTION_RANGE;
+
+                if distance <= collection_range {
+                    // Calculate fuel to collect
+                    let fuel_amount = GameConstants::FUEL_COLLECTION_RATE * delta_time;
+                    collections.push((*sat_id, fuel_amount));
+                    break; // Only collect from one planet at a time
+                }
+            }
+        }
+
+        // Apply fuel collection
+        for (sat_id, fuel_amount) in collections {
+            if let Some(satellite) = self.satellites.get_mut(&sat_id) {
+                satellite.add_fuel(fuel_amount);
+            }
+        }
+    }
+
+    /// Handle automatic fuel transfer from satellites to nearby rockets
+    fn handle_satellite_to_rocket_transfers(&mut self, delta_time: f32) {
+        // Collect transfer opportunities
+        let mut transfers = Vec::new();
+
+        for (rocket_id, rocket) in &self.rockets {
+            // Skip if rocket is full or landed
+            if rocket.current_fuel() >= rocket.max_fuel() || rocket.is_landed() {
+                continue;
+            }
+
+            // Find nearest satellite with fuel
+            let mut nearest_satellite: Option<(EntityId, f32)> = None;
+            let mut min_distance = f32::MAX;
+
+            for (sat_id, satellite) in &self.satellites {
+                // Skip if satellite has no spare fuel (keep maintenance reserve)
+                if satellite.current_fuel() <= satellite.maintenance_fuel_reserve() {
+                    continue;
+                }
+
+                let distance = (rocket.position() - satellite.position()).length();
+
+                // Check if in transfer range (use satellite's transfer range, not rocket docking range)
+                if distance <= satellite.transfer_range() && distance < min_distance {
+                    min_distance = distance;
+                    nearest_satellite = Some((*sat_id, satellite.current_fuel()));
+                }
+            }
+
+            // If found a satellite, schedule transfer
+            if let Some((sat_id, sat_fuel)) = nearest_satellite {
+                // Calculate transfer amount
+                let fuel_needed = rocket.max_fuel() - rocket.current_fuel();
+                let fuel_available = sat_fuel - self.satellites[&sat_id].maintenance_fuel_reserve();
+                let transfer_rate = GameConstants::MANUAL_FUEL_TRANSFER_RATE * delta_time;
+                let transfer_amount = transfer_rate.min(fuel_needed).min(fuel_available);
+
+                if transfer_amount > 0.0 {
+                    transfers.push((*rocket_id, sat_id, transfer_amount));
+                }
+            }
+        }
+
+        // Execute transfers
+        for (rocket_id, sat_id, amount) in transfers {
+            // Remove fuel from satellite
+            if let Some(satellite) = self.satellites.get_mut(&sat_id) {
+                satellite.consume_fuel(amount);
+            }
+
+            // Add fuel to rocket
+            if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                rocket.add_fuel(amount);
+            }
+        }
     }
 }
 
