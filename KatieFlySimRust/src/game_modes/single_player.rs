@@ -8,7 +8,7 @@ use crate::game_constants::GameConstants;
 use crate::physics::{TrajectoryPoint, TrajectoryPredictor};
 use crate::save_system::{GameSaveData, SavedCamera};
 use crate::systems::World;
-use crate::ui::{Camera, Hud};
+use crate::ui::{Camera, GameInfoDisplay};
 
 /// Single player game result
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub enum SinglePlayerResult {
 pub struct SinglePlayerGame {
     world: World,
     camera: Camera,
-    hud: Hud,
+    info_display: GameInfoDisplay,
     trajectory_predictor: TrajectoryPredictor,
     game_time: f32,
     is_paused: bool,
@@ -54,7 +54,7 @@ impl SinglePlayerGame {
         SinglePlayerGame {
             world: World::new(),
             camera: Camera::new(window_size),
-            hud: Hud::new(Vec2::new(10.0, 10.0)),
+            info_display: GameInfoDisplay::new(),
             trajectory_predictor: TrajectoryPredictor::new(),
             game_time: 0.0,
             is_paused: false,
@@ -271,6 +271,37 @@ impl SinglePlayerGame {
             if let Err(e) = self.save_game("quicksave") {
                 log::error!("Failed to quick save: {}", e);
             }
+        }
+
+        // Panel visibility toggles (keys 1-5)
+        if is_key_pressed(KeyCode::Key1) {
+            self.info_display.toggle_rocket_panel();
+            log::info!("Toggled rocket panel");
+        }
+        if is_key_pressed(KeyCode::Key2) {
+            self.info_display.toggle_planet_panel();
+            log::info!("Toggled planet panel");
+        }
+        if is_key_pressed(KeyCode::Key3) {
+            self.info_display.toggle_orbit_panel();
+            log::info!("Toggled orbit panel");
+        }
+        if is_key_pressed(KeyCode::Key4) {
+            self.info_display.toggle_controls_panel();
+            log::info!("Toggled controls panel");
+        }
+        if is_key_pressed(KeyCode::Key5) {
+            self.info_display.toggle_network_panel();
+            log::info!("Toggled network panel");
+        }
+        // Key 0 to toggle all panels
+        if is_key_pressed(KeyCode::Key0) {
+            self.info_display.show_all_panels();
+            log::info!("Showed all panels");
+        }
+        if is_key_pressed(KeyCode::Key9) {
+            self.info_display.hide_all_panels();
+            log::info!("Hid all panels");
         }
 
         // Mouse wheel zoom (reduced delta for finer control)
@@ -619,12 +650,21 @@ impl SinglePlayerGame {
         // Reset to default camera for HUD
         set_default_camera();
 
-        // Render HUD
-        if let Some(rocket) = self.world.get_active_rocket() {
-            self.hud.draw_rocket_stats(rocket, self.selected_thrust_level);
-        } else {
-            self.hud.draw_message("No active rocket");
-        }
+        // Update and render GameInfoDisplay
+        let all_planets: Vec<&Planet> = self.world.planets().collect();
+        let active_rocket = self.world.get_active_rocket();
+
+        self.info_display.update_all_panels(
+            active_rocket,
+            &all_planets,
+            self.selected_thrust_level,
+            false,          // network_connected (not used in single player)
+            None,           // player_id (not used in single player)
+            1,              // player_count (always 1 in single player)
+            None,           // satellite_stats (will integrate later with SatelliteManager)
+        );
+
+        self.info_display.draw_all_panels();
 
         // Draw pause indicator if paused (but not if showing controls)
         if self.is_paused && !self.show_controls {
