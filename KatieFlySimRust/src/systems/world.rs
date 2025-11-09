@@ -201,11 +201,50 @@ impl World {
             planet.update(delta_time);
         }
 
-        // Apply gravity to rockets
+        // Apply gravity to rockets from planets
         let planet_refs: Vec<&Planet> = self.planets.values().collect();
         for rocket in self.rockets.values_mut() {
             self.gravity_simulator
                 .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+        }
+
+        // Apply rocket-to-rocket gravity (for multiplayer)
+        if self.rockets.len() > 1 {
+            let rocket_ids: Vec<EntityId> = self.rockets.keys().copied().collect();
+
+            for i in 0..rocket_ids.len() {
+                for j in (i + 1)..rocket_ids.len() {
+                    let id1 = rocket_ids[i];
+                    let id2 = rocket_ids[j];
+
+                    // Get positions and masses for force calculation
+                    let (pos1, mass1, pos2, mass2) = {
+                        let r1 = &self.rockets[&id1];
+                        let r2 = &self.rockets[&id2];
+                        (r1.position(), r1.mass(), r2.position(), r2.mass())
+                    };
+
+                    // Calculate gravitational force
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        pos1, mass1, pos2, mass2
+                    );
+
+                    // Apply forces to both rockets
+                    let accel1 = force / mass1;
+                    let accel2 = -force / mass2;
+
+                    if let Some(rocket1) = self.rockets.get_mut(&id1) {
+                        rocket1.set_velocity(rocket1.velocity() + accel1 * delta_time);
+                    }
+                    if let Some(rocket2) = self.rockets.get_mut(&id2) {
+                        rocket2.set_velocity(rocket2.velocity() + accel2 * delta_time);
+                    }
+                }
+            }
+        }
+
+        // Update rocket physics
+        for rocket in self.rockets.values_mut() {
             rocket.update(delta_time);
         }
 
