@@ -51,10 +51,14 @@ pub struct SinglePlayerGame {
 
 impl SinglePlayerGame {
     pub fn new(window_size: Vec2) -> Self {
+        let mut info_display = GameInfoDisplay::new();
+        // Hide controls panel since we use the popup system instead (Enter key / "..." button)
+        info_display.toggle_controls_panel();
+
         SinglePlayerGame {
             world: World::new(),
             camera: Camera::new(window_size),
-            info_display: GameInfoDisplay::new(),
+            info_display,
             trajectory_predictor: TrajectoryPredictor::new(),
             game_time: 0.0,
             is_paused: false,
