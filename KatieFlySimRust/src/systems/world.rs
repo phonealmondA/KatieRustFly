@@ -492,6 +492,66 @@ impl World {
             }
         }
     }
+
+    // === Satellite Network Statistics ===
+
+    /// Get satellite network statistics for UI display
+    pub fn get_satellite_network_stats(&self) -> crate::systems::SatelliteNetworkStats {
+        use crate::systems::SatelliteNetworkStats;
+        use std::collections::HashMap;
+
+        let mut stats = SatelliteNetworkStats {
+            total_satellites: self.satellites.len(),
+            operational_satellites: 0,
+            total_network_fuel: 0.0,
+            average_fuel_percentage: 0.0,
+            average_orbital_accuracy: 0.0,
+            active_fuel_transfers: 0,
+            total_delta_v_expended: 0.0,
+            satellites_by_status: HashMap::new(),
+        };
+
+        if self.satellites.is_empty() {
+            return stats;
+        }
+
+        let mut total_fuel = 0.0;
+        let mut total_max_fuel = 0.0;
+
+        for satellite in self.satellites.values() {
+            let fuel_percent = satellite.fuel_percentage();
+            total_fuel += satellite.current_fuel();
+            total_max_fuel += satellite.max_fuel();
+
+            // Count as operational if fuel > 10%
+            if fuel_percent > 10.0 {
+                stats.operational_satellites += 1;
+            }
+
+            // Categorize by fuel status
+            let status = if fuel_percent < 10.0 {
+                "Critical"
+            } else if fuel_percent < 30.0 {
+                "LowFuel"
+            } else {
+                "Active"
+            };
+
+            *stats.satellites_by_status.entry(status.to_string()).or_insert(0) += 1;
+        }
+
+        stats.total_network_fuel = total_fuel;
+        stats.average_fuel_percentage = if total_max_fuel > 0.0 {
+            (total_fuel / total_max_fuel) * 100.0
+        } else {
+            0.0
+        };
+
+        // For now, we don't track orbital accuracy without full orbit maintenance integration
+        stats.average_orbital_accuracy = 95.0; // Placeholder
+
+        stats
+    }
 }
 
 impl Default for World {

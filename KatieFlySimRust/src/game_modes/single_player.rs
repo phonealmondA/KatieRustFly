@@ -654,6 +654,13 @@ impl SinglePlayerGame {
         let all_planets: Vec<&Planet> = self.world.planets().collect();
         let active_rocket = self.world.get_active_rocket();
 
+        // Get satellite network statistics
+        let satellite_stats = if self.world.satellite_count() > 0 {
+            Some(self.world.get_satellite_network_stats())
+        } else {
+            None
+        };
+
         self.info_display.update_all_panels(
             active_rocket,
             &all_planets,
@@ -661,7 +668,7 @@ impl SinglePlayerGame {
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)
             1,              // player_count (always 1 in single player)
-            None,           // satellite_stats (will integrate later with SatelliteManager)
+            satellite_stats.as_ref(),
         );
 
         self.info_display.draw_all_panels();
