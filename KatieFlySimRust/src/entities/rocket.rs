@@ -4,7 +4,10 @@
 use macroquad::prelude::*;
 
 use super::game_object::{GameObject, GameObjectData};
+use super::rocket_part::RocketPart;
+use super::engine::Engine;
 use crate::game_constants::GameConstants;
+use crate::utils::vector_helper;
 
 /// Rocket with dynamic mass, fuel system, and thrust control
 pub struct Rocket {
@@ -32,8 +35,15 @@ pub struct Rocket {
     landed: bool,
     landed_on_planet_id: Option<usize>,
 
-    // Rocket parts (engines, etc.) - simplified for now
-    // parts: Vec<Box<dyn RocketPart>>, // Will add later
+    // Rocket parts (engines, etc.)
+    parts: Vec<Box<dyn RocketPart>>,
+
+    // Visualization settings
+    pub show_velocity_vector: bool,
+    pub show_trajectory: bool,
+    pub velocity_vector_scale: f32,
+    pub trajectory_steps: usize,
+    pub trajectory_time_step: f32,
 }
 
 impl Rocket {
@@ -41,6 +51,14 @@ impl Rocket {
         let max_fuel = GameConstants::ROCKET_MAX_FUEL;
         let starting_fuel = GameConstants::ROCKET_STARTING_FUEL;
         let mass = base_mass + starting_fuel;
+
+        // Create default rocket parts (single engine)
+        let mut parts: Vec<Box<dyn RocketPart>> = Vec::new();
+        parts.push(Box::new(Engine::new(
+            Vec2::new(0.0, GameConstants::ROCKET_SIZE * 0.8),
+            GameConstants::ENGINE_THRUST_POWER,
+            Color::new(0.8, 0.2, 0.2, 1.0), // Red engine
+        )));
 
         Rocket {
             data: GameObjectData::new(position, velocity, color),
@@ -58,6 +76,12 @@ impl Rocket {
             fuel_transfer_rate: 0.0,
             landed: false,
             landed_on_planet_id: None,
+            parts,
+            show_velocity_vector: false,
+            show_trajectory: false,
+            velocity_vector_scale: 5.0,
+            trajectory_steps: 50,
+            trajectory_time_step: 0.1,
         }
     }
 
@@ -236,6 +260,148 @@ impl Rocket {
         self.mass
     }
 
+    // === Rocket Parts Management ===
+
+    pub fn add_part(&mut self, part: Box<dyn RocketPart>) {
+        self.parts.push(part);
+    }
+
+    pub fn parts(&self) -> &[Box<dyn RocketPart>] {
+        &self.parts
+    }
+
+    // === Visualization ===
+
+    /// Draw velocity vector
+    fn draw_velocity_vector(&self) {
+        if !self.show_velocity_vector {
+            return;
+        }
+
+        let velocity_magnitude = vector_helper::magnitude(self.data.velocity);
+        if velocity_magnitude < 0.1 {
+            return; // Don't draw tiny velocities
+        }
+
+        let scaled_velocity = self.data.velocity * self.velocity_vector_scale;
+        let end_pos = self.data.position + scaled_velocity;
+
+        // Draw velocity line
+        draw_line(
+            self.data.position.x,
+            self.data.position.y,
+            end_pos.x,
+            end_pos.y,
+            2.0,
+            Color::new(0.0, 1.0, 0.0, 0.8), // Green
+        );
+
+        // Draw arrowhead
+        let arrow_size = 5.0;
+        let velocity_normalized = vector_helper::normalize(self.data.velocity);
+        let perpendicular = Vec2::new(-velocity_normalized.y, velocity_normalized.x);
+
+        let arrow_base = end_pos - velocity_normalized * arrow_size * 2.0;
+        let arrow_left = arrow_base + perpendicular * arrow_size;
+        let arrow_right = arrow_base - perpendicular * arrow_size;
+
+        draw_triangle(end_pos, arrow_left, arrow_right, Color::new(0.0, 1.0, 0.0, 0.8));
+    }
+
+    /// Draw trajectory prediction
+    fn draw_trajectory(&self, planets: &[(&Vec2, f32, f32)]) {
+        if !self.show_trajectory {
+            return;
+        }
+
+        let mut predicted_pos = self.data.position;
+        let mut predicted_vel = self.data.velocity;
+        let dt = self.trajectory_time_step;
+
+        let mut prev_pos = predicted_pos;
+
+        for _ in 0..self.trajectory_steps {
+            // Simple trajectory prediction with gravity
+            let mut acceleration = Vec2::ZERO;
+
+            // Calculate gravity from all planets
+            for (planet_pos, planet_mass, _) in planets {
+                let direction = **planet_pos - predicted_pos;
+                let distance_sq = vector_helper::distance_squared(predicted_pos, **planet_pos);
+
+                if distance_sq > 1.0 {
+                    let force_magnitude = GameConstants::G * planet_mass / distance_sq;
+                    acceleration += vector_helper::normalize(direction) * force_magnitude;
+                }
+            }
+
+            // Update predicted velocity and position
+            predicted_vel += acceleration * dt;
+            predicted_pos += predicted_vel * dt;
+
+            // Draw trajectory line segment
+            draw_line(
+                prev_pos.x,
+                prev_pos.y,
+                predicted_pos.x,
+                predicted_pos.y,
+                1.0,
+                Color::new(1.0, 1.0, 0.0, 0.3), // Yellow, semi-transparent
+            );
+
+            prev_pos = predicted_pos;
+        }
+
+        // Draw small dots at regular intervals along trajectory
+        predicted_pos = self.data.position;
+        predicted_vel = self.data.velocity;
+
+        for i in 0..self.trajectory_steps {
+            if i % 10 == 0 {
+                let mut acceleration = Vec2::ZERO;
+                for (planet_pos, planet_mass, _) in planets {
+                    let direction = **planet_pos - predicted_pos;
+                    let distance_sq = vector_helper::distance_squared(predicted_pos, **planet_pos);
+
+                    if distance_sq > 1.0 {
+                        let force_magnitude = GameConstants::G * planet_mass / distance_sq;
+                        acceleration += vector_helper::normalize(direction) * force_magnitude;
+                    }
+                }
+
+                predicted_vel += acceleration * dt;
+                predicted_pos += predicted_vel * dt;
+
+                draw_circle(
+                    predicted_pos.x,
+                    predicted_pos.y,
+                    2.0,
+                    Color::new(1.0, 1.0, 0.0, 0.6),
+                );
+            } else {
+                let mut acceleration = Vec2::ZERO;
+                for (planet_pos, planet_mass, _) in planets {
+                    let direction = **planet_pos - predicted_pos;
+                    let distance_sq = vector_helper::distance_squared(predicted_pos, **planet_pos);
+
+                    if distance_sq > 1.0 {
+                        let force_magnitude = GameConstants::G * planet_mass / distance_sq;
+                        acceleration += vector_helper::normalize(direction) * force_magnitude;
+                    }
+                }
+
+                predicted_vel += acceleration * dt;
+                predicted_pos += predicted_vel * dt;
+            }
+        }
+    }
+
+    /// Draw with optional planet data for trajectory prediction
+    pub fn draw_with_planets(&self, planets: &[(&Vec2, f32, f32)]) {
+        self.draw();
+        self.draw_trajectory(planets);
+    }
+
     // === Landing State ===
 
     /// Check if rocket is landed on a planet
@@ -267,6 +433,48 @@ impl Rocket {
             self.landed_on_planet_id = None;
             log::info!("Rocket taking off!");
         }
+    }
+
+    /// Draw thrust flame when rocket is firing engines
+    fn draw_thrust_flame(&self) {
+        let flame_length = GameConstants::ROCKET_SIZE * 1.5 * self.thrust_level;
+        let flame_width = GameConstants::ROCKET_SIZE * 0.4;
+
+        // Calculate flame position (at the back of rocket)
+        let flame_offset = Vec2::new(0.0, GameConstants::ROCKET_SIZE);
+        let rotated_offset = vector_helper::rotate(flame_offset, self.rotation);
+        let flame_base = self.data.position + rotated_offset;
+
+        // Calculate flame tip
+        let flame_direction = Vec2::new(0.0, flame_length);
+        let rotated_flame = vector_helper::rotate(flame_direction, self.rotation);
+        let flame_tip = flame_base + rotated_flame;
+
+        // Flame side points
+        let perpendicular = vector_helper::rotate(Vec2::new(flame_width / 2.0, 0.0), self.rotation);
+        let flame_left = flame_base + perpendicular;
+        let flame_right = flame_base - perpendicular;
+
+        // Draw flame (orange/yellow triangle)
+        draw_triangle(
+            flame_tip,
+            flame_left,
+            flame_right,
+            Color::new(1.0, 0.6, 0.0, 0.8), // Orange flame
+        );
+
+        // Draw inner flame (brighter)
+        let inner_flame_tip = flame_base + rotated_flame * 0.7;
+        let inner_perpendicular = perpendicular * 0.6;
+        let inner_left = flame_base + inner_perpendicular;
+        let inner_right = flame_base - inner_perpendicular;
+
+        draw_triangle(
+            inner_flame_tip,
+            inner_left,
+            inner_right,
+            Color::new(1.0, 1.0, 0.3, 0.9), // Bright yellow center
+        );
     }
 }
 
@@ -329,9 +537,18 @@ impl GameObject for Rocket {
             self.data.color,
         );
 
-        // TODO: Draw rocket parts (engines, etc.)
-        // TODO: Draw velocity vector if enabled
-        // TODO: Draw trajectory prediction if enabled
+        // Draw rocket parts (engines, fuel tanks, etc.)
+        for part in &self.parts {
+            part.draw(self.data.position, self.rotation, 1.0);
+        }
+
+        // Draw thrust flame if thrusting
+        if self.is_currently_thrusting && self.thrust_level > 0.0 {
+            self.draw_thrust_flame();
+        }
+
+        // Draw velocity vector
+        self.draw_velocity_vector();
     }
 
     fn position(&self) -> Vec2 {

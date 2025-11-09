@@ -110,6 +110,18 @@ impl GameObject for Planet {
             self.radius,
             self.data.color,
         );
+
+        // Draw fuel collection range (always visible for planning)
+        if self.can_collect_fuel() {
+            let collection_radius = self.fuel_collection_range();
+            draw_circle_lines(
+                self.data.position.x,
+                self.data.position.y,
+                collection_radius,
+                GameConstants::FUEL_RING_THICKNESS,
+                Color::new(0.0, 1.0, 1.0, 0.7), // Cyan, 70% visible to match satellites
+            );
+        }
     }
 
     fn position(&self) -> Vec2 {

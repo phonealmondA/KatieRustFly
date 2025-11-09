@@ -43,6 +43,10 @@ pub struct SinglePlayerGame {
     current_save_name: Option<String>,
     last_auto_save: f32,
     auto_save_interval: f32,
+
+    // Starting position for new rockets
+    rocket_spawn_position: Vec2,
+    rocket_spawn_velocity: Vec2,
 }
 
 impl SinglePlayerGame {
@@ -65,6 +69,8 @@ impl SinglePlayerGame {
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
+            rocket_spawn_position: Vec2::ZERO,
+            rocket_spawn_velocity: Vec2::ZERO,
         }
     }
 
@@ -113,12 +119,15 @@ impl SinglePlayerGame {
 
         // Create starting rocket near main planet
         let rocket_spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+        self.rocket_spawn_position = Vec2::new(
+            GameConstants::MAIN_PLANET_X + rocket_spawn_distance,
+            GameConstants::MAIN_PLANET_Y,
+        );
+        self.rocket_spawn_velocity = Vec2::new(0.0, 0.0);
+
         let rocket = Rocket::new(
-            Vec2::new(
-                GameConstants::MAIN_PLANET_X + rocket_spawn_distance,
-                GameConstants::MAIN_PLANET_Y,
-            ),
-            Vec2::new(0.0, 0.0),
+            self.rocket_spawn_position,
+            self.rocket_spawn_velocity,
             WHITE,
             GameConstants::ROCKET_BASE_MASS,
         );
@@ -328,7 +337,7 @@ impl SinglePlayerGame {
                         is_key_down(KeyCode::Space) ||
                         is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) ||
                         is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) ||
-                        is_key_pressed(KeyCode::L) || is_key_pressed(KeyCode::T);
+                        is_key_pressed(KeyCode::T);
 
         if has_input {
             self.idle_timer = 0.0;
@@ -373,35 +382,26 @@ impl SinglePlayerGame {
             }
         }
 
-        // Launch new rocket (L key)
-        if is_key_pressed(KeyCode::L) {
-            self.launch_new_rocket();
-        }
-
         // Convert to satellite (T key)
         if is_key_pressed(KeyCode::T) {
             if let Some(rocket_id) = self.world.active_rocket_id() {
+                // Convert rocket to satellite
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
                     log::info!("Rocket converted to satellite");
+
+                    // Spawn new rocket at the starting position
+                    let new_rocket = Rocket::new(
+                        self.rocket_spawn_position,
+                        self.rocket_spawn_velocity,
+                        WHITE,
+                        GameConstants::ROCKET_BASE_MASS,
+                    );
+
+                    let new_id = self.world.add_rocket(new_rocket);
+                    self.world.set_active_rocket(Some(new_id));
+                    log::info!("New rocket spawned at starting position");
                 }
             }
-        }
-    }
-
-    /// Launch a new rocket from the active rocket's position
-    fn launch_new_rocket(&mut self) {
-        if let Some(current_rocket) = self.world.get_active_rocket() {
-            let new_rocket = Rocket::new(
-                current_rocket.position(),
-                current_rocket.velocity(),
-                Color::from_rgba(200, 200, 255, 255),
-                GameConstants::ROCKET_BASE_MASS,
-            );
-
-            let new_id = self.world.add_rocket(new_rocket);
-            self.world.set_active_rocket(Some(new_id));
-
-            log::info!("New rocket launched");
         }
     }
 

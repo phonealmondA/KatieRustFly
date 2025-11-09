@@ -54,7 +54,7 @@ impl GameConstants {
     pub const FUEL_CONSUMPTION_MIN_THRESHOLD: f32 = 0.1;
 
     // Automatic fuel collection (for satellites)
-    pub const FUEL_COLLECTION_RANGE: f32 = 250.0;
+    pub const FUEL_COLLECTION_RANGE: f32 = 750.0;
     pub const FUEL_COLLECTION_RATE: f32 = 15.0;
     pub const FUEL_COLLECTION_MASS_RATIO: f32 = 150.0;
     pub const MIN_PLANET_MASS_FOR_COLLECTION: f32 = 50.0;
