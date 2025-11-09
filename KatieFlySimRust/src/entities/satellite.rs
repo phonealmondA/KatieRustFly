@@ -369,13 +369,13 @@ impl GameObject for Satellite {
             crate::game_constants::colors::SATELLITE_PANEL_COLOR,
         );
 
-        // Draw fuel transfer range circle (semi-transparent)
+        // Draw fuel transfer range circle (visible)
         draw_circle_lines(
             self.data.position.x,
             self.data.position.y,
             self.transfer_range,
             2.0,
-            Color::new(0.0, 1.0, 1.0, 0.3), // Cyan, semi-transparent
+            Color::new(0.0, 1.0, 1.0, 0.7), // Cyan, 70% visible
         );
 
         // Draw status indicator (small circle at center)
