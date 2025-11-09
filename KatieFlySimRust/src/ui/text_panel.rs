@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn test_text_panel_with_title() {
         let panel = TextPanel::default()
-            .with_title("Test Title".to_string());
+            .with_title("Test Title");
         assert!(panel.title.is_some());
     }
 
@@ -440,13 +440,10 @@ mod tests {
 
     #[test]
     fn test_contains_point() {
-        let config = TextPanelConfig {
-            position: Vec2::new(100.0, 100.0),
-            width: 200.0,
-            height: 150.0,
-            ..Default::default()
-        };
-        let panel = TextPanel::new(config);
+        let panel = TextPanel::new(
+            Vec2::new(100.0, 100.0),
+            Vec2::new(200.0, 150.0)
+        );
 
         assert!(panel.contains_point(Vec2::new(150.0, 150.0)));
         assert!(!panel.contains_point(Vec2::new(50.0, 50.0)));

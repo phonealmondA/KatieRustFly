@@ -39,3 +39,4 @@ pub mod player;
 
 // Re-export commonly used types
 pub use game_constants::GameConstants;
+pub use player::{Player, PlayerType, PlayerState};
