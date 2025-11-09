@@ -381,8 +381,28 @@ impl SinglePlayerGame {
         // Convert to satellite (T key)
         if is_key_pressed(KeyCode::T) {
             if let Some(rocket_id) = self.world.active_rocket_id() {
+                // Save rocket position and velocity before conversion
+                let (spawn_pos, spawn_vel) = if let Some(rocket) = self.world.get_active_rocket() {
+                    (rocket.position(), rocket.velocity())
+                } else {
+                    (Vec2::ZERO, Vec2::ZERO)
+                };
+
+                // Convert rocket to satellite
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
                     log::info!("Rocket converted to satellite");
+
+                    // Spawn new rocket at the satellite's position
+                    let new_rocket = Rocket::new(
+                        spawn_pos,
+                        spawn_vel,
+                        Color::from_rgba(200, 200, 255, 255),
+                        GameConstants::ROCKET_BASE_MASS,
+                    );
+
+                    let new_id = self.world.add_rocket(new_rocket);
+                    self.world.set_active_rocket(Some(new_id));
+                    log::info!("New rocket spawned at satellite position");
                 }
             }
         }
