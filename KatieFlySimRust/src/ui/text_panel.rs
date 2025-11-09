@@ -55,7 +55,14 @@ pub struct TextPanel {
 }
 
 impl TextPanel {
-    pub fn new(config: TextPanelConfig) -> Self {
+    pub fn new(position: Vec2, size: Vec2) -> Self {
+        let config = TextPanelConfig {
+            position,
+            width: size.x,
+            height: size.y,
+            ..Default::default()
+        };
+
         TextPanel {
             config,
             lines: Vec::new(),
@@ -64,8 +71,32 @@ impl TextPanel {
         }
     }
 
-    pub fn with_title(mut self, title: String) -> Self {
-        self.title = Some(title);
+    pub fn from_config(config: TextPanelConfig) -> Self {
+        TextPanel {
+            config,
+            lines: Vec::new(),
+            title: None,
+            visible: true,
+        }
+    }
+
+    pub fn with_title(mut self, title: &str) -> Self {
+        self.title = Some(title.to_string());
+        self
+    }
+
+    pub fn with_background_color(mut self, color: Color) -> Self {
+        self.config.background_color = color;
+        self
+    }
+
+    pub fn with_border_color(mut self, color: Color) -> Self {
+        self.config.border_color = color;
+        self
+    }
+
+    pub fn with_text_color(mut self, color: Color) -> Self {
+        self.config.text_color = color;
         self
     }
 
@@ -368,7 +399,8 @@ impl TextPanel {
 
 impl Default for TextPanel {
     fn default() -> Self {
-        Self::new(TextPanelConfig::default())
+        let config = TextPanelConfig::default();
+        Self::new(Vec2::new(config.position.x, config.position.y), Vec2::new(config.width, config.height))
     }
 }
 
