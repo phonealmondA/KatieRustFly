@@ -80,6 +80,7 @@ impl VehicleManager {
         rocket: &Rocket,
         planets: &[&Planet],
         zoom_level: f32,
+        camera: &Camera2D,
     ) {
         // Draw trajectory prediction
         if self.visualization.show_trajectory {
@@ -120,6 +121,7 @@ impl VehicleManager {
                 rocket,
                 planets,
                 self.visualization.force_vector_scale,
+                camera,
             );
         }
     }

@@ -48,6 +48,9 @@ pub struct GameInfoDisplay {
     // Game context
     game_mode: GameMode,
     network_role: NetworkRole,
+
+    // Rocket heading for visual indicator
+    current_rocket_rotation: f32,
 }
 
 impl GameInfoDisplay {
@@ -116,6 +119,7 @@ impl GameInfoDisplay {
             panel_margin,
             game_mode: GameMode::SinglePlayer,
             network_role: NetworkRole::None,
+            current_rocket_rotation: 0.0,
         }
     }
 
@@ -181,6 +185,7 @@ impl GameInfoDisplay {
     pub fn update_rocket_panel(&mut self, rocket: &Rocket, selected_thrust: f32) {
         let info = self.generate_vehicle_info(rocket, selected_thrust);
         self.rocket_panel.set_text(&info);
+        self.current_rocket_rotation = rocket.rotation();
     }
 
     /// Update planet information panel
@@ -499,9 +504,64 @@ impl GameInfoDisplay {
 
     // === Drawing ===
 
+    /// Draw a visual rocket triangle showing the current heading (from old Hud)
+    fn draw_heading_indicator(&self, rotation: f32) {
+        // Position in the rocket panel, to the right of the "Heading" text
+        let panel_pos = self.rocket_panel.position();
+        let center_x = panel_pos.x + 240.0;  // Right side of the panel
+        let center_y = panel_pos.y + 175.0;   // Near bottom, aligned with "Heading:" text
+
+        // Fixed size rocket triangle (independent of game zoom)
+        let size = 20.0;
+
+        // Define triangle points (pointing up in local space)
+        // Tip of rocket
+        let tip = Vec2::new(0.0, -size);
+        // Left base
+        let left = Vec2::new(-size * 0.4, size * 0.5);
+        // Right base
+        let right = Vec2::new(size * 0.4, size * 0.5);
+
+        // Rotate points by rocket rotation (negate for correct rotation direction, add PI for correct base orientation)
+        let adjusted_rotation = -rotation + std::f32::consts::PI;
+        let cos_r = adjusted_rotation.cos();
+        let sin_r = adjusted_rotation.sin();
+
+        let rotate = |p: Vec2| -> Vec2 {
+            Vec2::new(
+                p.x * cos_r - p.y * sin_r,
+                p.x * sin_r + p.y * cos_r,
+            )
+        };
+
+        let tip_rotated = rotate(tip);
+        let left_rotated = rotate(left);
+        let right_rotated = rotate(right);
+
+        // Translate to screen position
+        let tip_screen = Vec2::new(center_x + tip_rotated.x, center_y + tip_rotated.y);
+        let left_screen = Vec2::new(center_x + left_rotated.x, center_y + left_rotated.y);
+        let right_screen = Vec2::new(center_x + right_rotated.x, center_y + right_rotated.y);
+
+        // Draw filled triangle
+        draw_triangle(
+            tip_screen,
+            left_screen,
+            right_screen,
+            Color::new(0.3, 0.7, 1.0, 1.0), // Light blue
+        );
+
+        // Draw outline for better visibility
+        draw_line(tip_screen.x, tip_screen.y, left_screen.x, left_screen.y, 2.0, WHITE);
+        draw_line(left_screen.x, left_screen.y, right_screen.x, right_screen.y, 2.0, WHITE);
+        draw_line(right_screen.x, right_screen.y, tip_screen.x, tip_screen.y, 2.0, WHITE);
+    }
+
     pub fn draw_all_panels(&self) {
         if self.show_rocket_panel {
             self.rocket_panel.draw();
+            // Draw heading indicator after the panel
+            self.draw_heading_indicator(self.current_rocket_rotation);
         }
 
         if self.show_planet_panel {

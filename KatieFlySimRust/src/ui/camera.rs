@@ -66,7 +66,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(0.1).min(100000.0); // Clamp zoom (0.1 = zoomed in, 100000.0 = massively zoomed out)
+        self.target_zoom = zoom.max(1.0).min(100000.0); // Clamp zoom (1.0 = starting zoom/closest, 100000.0 = massively zoomed out)
     }
 
     /// Adjust zoom by a delta
@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(camera.target_zoom, 100000.0);
 
         camera.set_target_zoom(0.01); // Too low (too zoomed in)
-        assert_eq!(camera.target_zoom, 0.1);
+        assert_eq!(camera.target_zoom, 1.0); // Minimum is now 1.0 (starting zoom)
     }
 
     #[test]

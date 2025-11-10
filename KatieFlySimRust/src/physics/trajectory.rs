@@ -441,6 +441,7 @@ impl TrajectoryPredictor {
         rocket: &Rocket,
         planets: &[&Planet],
         scale: f32,
+        camera: &Camera2D,
     ) {
         let rocket_pos = rocket.position();
 
@@ -492,15 +493,24 @@ impl TrajectoryPredictor {
                 );
 
                 // Draw label with force magnitude
+                // Convert world position to screen position so text appears right-side up
                 let label_pos = rocket_pos + force_vector * 0.5;
                 let force_text = format!("{:.1}N", force_magnitude);
+
+                // Convert world coordinates to screen coordinates
+                let screen_pos = camera.world_to_screen(label_pos);
+
+                // Temporarily switch to default camera to draw text right-side up
+                set_default_camera();
                 draw_text(
                     &force_text,
-                    label_pos.x + 5.0,
-                    label_pos.y - 5.0,
+                    screen_pos.x + 5.0,
+                    screen_pos.y - 5.0,
                     16.0,
                     WHITE,
                 );
+                // Restore the world camera
+                set_camera(camera);
             }
         }
     }
