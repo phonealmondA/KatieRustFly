@@ -1,6 +1,6 @@
 # Rust build artifacts
 /target/
-/saves/
+
 Cargo.lock
 
 # IDE
