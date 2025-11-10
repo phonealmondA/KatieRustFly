@@ -100,20 +100,20 @@ impl MultiplayerHost {
         );
         self.world.add_planet(main_planet);
 
-        // Create moon
-        let moon_distance = GameConstants::MAIN_PLANET_RADIUS * 4.0;
-        let moon_x = GameConstants::MAIN_PLANET_X + moon_distance;
-        let moon_y = GameConstants::MAIN_PLANET_Y;
-        let moon_velocity = (GameConstants::G * GameConstants::MAIN_PLANET_MASS / moon_distance).sqrt();
+        // Create secondary planet (Moon) - match single player configuration
+        let moon_x = *crate::game_constants::SECONDARY_PLANET_X;
+        let moon_y = *crate::game_constants::SECONDARY_PLANET_Y;
+        let moon_radius = GameConstants::SECONDARY_PLANET_RADIUS;
+        let moon_velocity = *crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY;
 
-        let mut moon = Planet::new(
+        let mut secondary_planet = Planet::new(
             Vec2::new(moon_x, moon_y),
-            GameConstants::MAIN_PLANET_RADIUS * 0.5,
-            GameConstants::MAIN_PLANET_MASS * 0.05,
-            GRAY,
+            moon_radius,
+            GameConstants::SECONDARY_PLANET_MASS,
+            Color::from_rgba(150, 150, 150, 255),
         );
-        moon.set_velocity(Vec2::new(0.0, moon_velocity));
-        self.world.add_planet(moon);
+        secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
+        self.world.add_planet(secondary_planet);
 
         // Spawn host's rocket (player 0)
         let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
@@ -439,10 +439,42 @@ impl MultiplayerHost {
         // Render world
         self.world.render();
 
+        // Draw trajectory visualization for host's rocket
+        if let Some(rocket_id) = self.active_rocket_id {
+            if let Some(rocket) = self.world.get_rocket(rocket_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                self.vehicle_manager.draw_visualizations(
+                    rocket,
+                    &all_planets,
+                    self.camera.zoom_level(),
+                    self.camera.camera(),
+                );
+            }
+        }
+
         // Reset to default camera for UI
         set_default_camera();
 
-        // Show host status
+        // Update and draw game info panels
+        if let Some(rocket_id) = self.active_rocket_id {
+            if let Some(rocket) = self.world.get_rocket(rocket_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                let satellite_stats = self.world.get_satellite_network_stats();
+
+                self.game_info.update_all_panels(
+                    Some(rocket),
+                    &all_planets,
+                    self.player_state.thrust_level(),
+                    true,  // network_connected (hosting)
+                    Some(0),  // Host is player 0
+                    1,  // player_count (just the host for now)
+                    Some(&satellite_stats),
+                );
+                self.game_info.draw_all_panels();
+            }
+        }
+
+        // Show host status at bottom
         let clients = self.clients.lock().unwrap();
         draw_text(
             &format!("HOST | Port: ? | Clients: {}", clients.len()),
@@ -451,6 +483,11 @@ impl MultiplayerHost {
             20.0,
             GREEN,
         );
+
+        // Show "Press ENTER for controls" at top-right
+        let help_text = "Press ENTER for controls";
+        let help_w = measure_text(help_text, None, 18, 1.0).width;
+        draw_text(help_text, screen_width() - help_w - 20.0, 30.0, 18.0, LIGHTGRAY);
 
         if self.paused {
             draw_text(

@@ -51,6 +51,9 @@ pub struct GameInfoDisplay {
 
     // Rocket heading for visual indicator
     current_rocket_rotation: f32,
+
+    // Player theme color (for split-screen)
+    theme_color: Color,
 }
 
 impl GameInfoDisplay {
@@ -120,6 +123,91 @@ impl GameInfoDisplay {
             game_mode: GameMode::SinglePlayer,
             network_role: NetworkRole::None,
             current_rocket_rotation: 0.0,
+            theme_color: Color::new(0.3, 0.7, 1.0, 1.0),  // Default light blue
+        }
+    }
+
+    /// Create a new GameInfoDisplay for a specific player in split-screen mode
+    /// player_num: 0 for Player 1 (left, red), 1 for Player 2 (right, blue)
+    pub fn new_for_player(player_num: usize) -> Self {
+        let panel_width = 280.0;
+        let panel_margin = 10.0;
+        let screen_width = screen_width();
+        let screen_height = screen_height();
+
+        // Determine panel positions based on player
+        let (x_pos, theme_color, player_name) = if player_num == 0 {
+            // Player 1: left side, red theme
+            (panel_margin, Color::new(1.0, 0.0, 0.0, 0.6), "Player 1")
+        } else {
+            // Player 2: right side, blue theme
+            (screen_width - panel_width - panel_margin, Color::new(0.0, 0.5, 1.0, 0.6), "Player 2")
+        };
+
+        // Create rocket panel with player-specific position and color
+        let rocket_panel = TextPanel::new(
+            Vec2::new(x_pos, panel_margin),
+            Vec2::new(panel_width, 200.0),
+        )
+        .with_title(&format!("{} Rocket", player_name))
+        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
+        .with_border_color(theme_color);
+
+        // Planet panel
+        let planet_panel = TextPanel::new(
+            Vec2::new(x_pos, 220.0),
+            Vec2::new(panel_width, 180.0),
+        )
+        .with_title("Nearest Planet")
+        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
+        .with_border_color(theme_color);
+
+        // Orbit panel
+        let orbit_panel = TextPanel::new(
+            Vec2::new(x_pos, 410.0),
+            Vec2::new(panel_width, 150.0),
+        )
+        .with_title("Orbital Info")
+        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
+        .with_border_color(theme_color);
+
+        // Controls panel (hidden by default in split-screen)
+        let controls_panel = TextPanel::new(
+            Vec2::new(x_pos, 570.0),
+            Vec2::new(panel_width, 150.0),
+        )
+        .with_title("Controls")
+        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
+        .with_border_color(Color::new(0.8, 0.8, 0.8, 0.6));
+
+        // Network panel at bottom middle (same for both players)
+        let network_x = screen_width / 2.0 - panel_width / 2.0;
+        let network_panel = TextPanel::new(
+            Vec2::new(network_x, screen_height - 180.0),
+            Vec2::new(panel_width, 150.0),
+        )
+        .with_title("Satellite Network")
+        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
+        .with_border_color(Color::new(1.0, 0.5, 0.0, 0.6));
+
+        GameInfoDisplay {
+            rocket_panel,
+            planet_panel,
+            orbit_panel,
+            controls_panel,
+            network_panel,
+            show_rocket_panel: true,
+            show_planet_panel: true,
+            show_orbit_panel: true,
+            show_controls_panel: false,  // Hidden by default in split-screen
+            show_network_panel: true,    // Show network panel in split-screen
+            panel_spacing: 10.0,
+            panel_width,
+            panel_margin,
+            game_mode: GameMode::SplitScreen,
+            network_role: NetworkRole::None,
+            current_rocket_rotation: 0.0,
+            theme_color,  // Use player-specific theme color
         }
     }
 
@@ -543,12 +631,12 @@ impl GameInfoDisplay {
         let left_screen = Vec2::new(center_x + left_rotated.x, center_y + left_rotated.y);
         let right_screen = Vec2::new(center_x + right_rotated.x, center_y + right_rotated.y);
 
-        // Draw filled triangle
+        // Draw filled triangle with player theme color
         draw_triangle(
             tip_screen,
             left_screen,
             right_screen,
-            Color::new(0.3, 0.7, 1.0, 1.0), // Light blue
+            self.theme_color,
         );
 
         // Draw outline for better visibility

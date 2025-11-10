@@ -29,7 +29,8 @@ pub enum SplitScreenResult {
 pub struct SplitScreenGame {
     world: World,
     camera: Camera,
-    info_display: GameInfoDisplay,
+    player1_info_display: GameInfoDisplay,  // Player 1 UI (left side, red)
+    player2_info_display: GameInfoDisplay,  // Player 2 UI (right side, blue)
     vehicle_manager: VehicleManager,
     game_time: f32,
     is_paused: bool,
@@ -61,13 +62,17 @@ pub struct SplitScreenGame {
 
 impl SplitScreenGame {
     pub fn new(window_size: Vec2) -> Self {
-        let mut info_display = GameInfoDisplay::new();
-        info_display.toggle_controls_panel();
+        // Create Player 1 info display (left side, red theme)
+        let player1_info_display = GameInfoDisplay::new_for_player(0);
+
+        // Create Player 2 info display (right side, blue theme)
+        let player2_info_display = GameInfoDisplay::new_for_player(1);
 
         SplitScreenGame {
             world: World::new(),
             camera: Camera::new(window_size),
-            info_display,
+            player1_info_display,
+            player2_info_display,
             vehicle_manager: VehicleManager::new(),
             game_time: 0.0,
             is_paused: false,
@@ -118,7 +123,7 @@ impl SplitScreenGame {
             GameConstants::SECONDARY_PLANET_MASS,
             Color::from_rgba(150, 150, 150, 255),
         );
-        secondary_planet.set_velocity(Vec2::new(0.0, moon_velocity));
+        secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
         self.world.add_planet(secondary_planet);
 
         // Spawn Player 1 rocket at default position
@@ -298,6 +303,64 @@ impl SplitScreenGame {
             self.is_paused = self.show_controls;
         }
 
+        // Toggle UI panels with 0-9 keys (work even when paused)
+        if is_key_pressed(KeyCode::Key0) {
+            self.player1_info_display.toggle_rocket_panel();
+            self.player2_info_display.toggle_rocket_panel();
+        }
+        if is_key_pressed(KeyCode::Key1) {
+            self.player1_info_display.toggle_planet_panel();
+            self.player2_info_display.toggle_planet_panel();
+        }
+        if is_key_pressed(KeyCode::Key2) {
+            self.player1_info_display.toggle_orbit_panel();
+            self.player2_info_display.toggle_orbit_panel();
+        }
+        if is_key_pressed(KeyCode::Key3) {
+            self.player1_info_display.toggle_network_panel();
+            self.player2_info_display.toggle_network_panel();
+        }
+        if is_key_pressed(KeyCode::Key8) {
+            self.player1_info_display.show_all_panels();
+            self.player2_info_display.show_all_panels();
+        }
+        if is_key_pressed(KeyCode::Key9) {
+            self.player1_info_display.hide_all_panels();
+            self.player2_info_display.hide_all_panels();
+        }
+
+        // Handle scroll wheel zoom - switches to ShowBoth mode and applies zoom
+        let mouse_wheel = mouse_wheel().1;
+        if mouse_wheel != 0.0 {
+            self.camera_mode = CameraMode::ShowBoth;
+            self.camera.adjust_zoom(-mouse_wheel * 0.02);
+        }
+
+        // Handle keyboard zoom based on camera mode
+        match self.camera_mode {
+            CameraMode::FocusPlayer1(_) => {
+                // Player 1 focused: use Q+E zoom controls
+                if is_key_down(KeyCode::Q) {
+                    self.camera.adjust_zoom(-0.02); // Q = zoom in
+                }
+                if is_key_down(KeyCode::E) {
+                    self.camera.adjust_zoom(0.02); // E = zoom out
+                }
+            }
+            CameraMode::FocusPlayer2(_) => {
+                // Player 2 focused: use /+' zoom controls
+                if is_key_down(KeyCode::Slash) {
+                    self.camera.adjust_zoom(-0.02); // / = zoom in
+                }
+                if is_key_down(KeyCode::Apostrophe) {
+                    self.camera.adjust_zoom(0.02); // ' = zoom out
+                }
+            }
+            CameraMode::ShowBoth => {
+                // No keyboard zoom when showing both players
+            }
+        }
+
         if self.is_paused {
             return SplitScreenResult::Continue;
         }
@@ -438,18 +501,32 @@ impl SplitScreenGame {
         // Draw world entities
         self.world.render();
 
-        // Draw trajectories for both players
+        // Draw trajectories for both players with color-coded lines
         if let Some(r1_id) = self.player1_rocket_id {
             if let Some(r1) = self.world.get_rocket(r1_id) {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
-                self.vehicle_manager.draw_visualizations(r1, &all_planets, self.camera.zoom_level(), self.camera.camera());
+                // Player 1: red trajectory
+                self.vehicle_manager.draw_visualizations_with_color(
+                    r1,
+                    &all_planets,
+                    self.camera.zoom_level(),
+                    self.camera.camera(),
+                    Some(Color::new(1.0, 0.0, 0.0, 0.6)),
+                );
             }
         }
 
         if let Some(r2_id) = self.player2_rocket_id {
             if let Some(r2) = self.world.get_rocket(r2_id) {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
-                self.vehicle_manager.draw_visualizations(r2, &all_planets, self.camera.zoom_level(), self.camera.camera());
+                // Player 2: blue trajectory
+                self.vehicle_manager.draw_visualizations_with_color(
+                    r2,
+                    &all_planets,
+                    self.camera.zoom_level(),
+                    self.camera.camera(),
+                    Some(Color::new(0.0, 0.5, 1.0, 0.6)),
+                );
             }
         }
 
@@ -466,18 +543,44 @@ impl SplitScreenGame {
     }
 
     fn draw_ui(&mut self) {
-        // Update and draw info displays for both players
-        // For now, just show basic info
         let screen_w = screen_width();
         let screen_h = screen_height();
+        let all_planets: Vec<&Planet> = self.world.planets().collect();
 
-        // Player 1 info (top-left)
-        draw_text(&format!("Player 1 (Red)"), 10.0, 30.0, 20.0, RED);
-        draw_text(&format!("Thrust: {}%", (self.player1_state.thrust_level() * 100.0) as i32), 10.0, 50.0, 20.0, WHITE);
+        // Get satellite stats for network panel
+        let satellite_stats = self.world.get_satellite_network_stats();
 
-        // Player 2 info (top-right)
-        draw_text(&format!("Player 2 (Blue)"), screen_w - 200.0, 30.0, 20.0, BLUE);
-        draw_text(&format!("Thrust: {}%", (self.player2_state.thrust_level() * 100.0) as i32), screen_w - 200.0, 50.0, 20.0, WHITE);
+        // Update and draw Player 1 info display (left side, red theme)
+        if let Some(r1_id) = self.player1_rocket_id {
+            if let Some(r1) = self.world.get_rocket(r1_id) {
+                self.player1_info_display.update_all_panels(
+                    Some(r1),
+                    &all_planets,
+                    self.player1_state.thrust_level(),
+                    false,  // network_connected (not applicable for local split-screen)
+                    Some(0),  // Player 1 ID
+                    2,  // player_count (always 2 in split-screen)
+                    Some(&satellite_stats),
+                );
+                self.player1_info_display.draw_all_panels();
+            }
+        }
+
+        // Update and draw Player 2 info display (right side, blue theme)
+        if let Some(r2_id) = self.player2_rocket_id {
+            if let Some(r2) = self.world.get_rocket(r2_id) {
+                self.player2_info_display.update_all_panels(
+                    Some(r2),
+                    &all_planets,
+                    self.player2_state.thrust_level(),
+                    false,  // network_connected
+                    Some(1),  // Player 2 ID
+                    2,  // player_count
+                    Some(&satellite_stats),
+                );
+                self.player2_info_display.draw_all_panels();
+            }
+        }
 
         // Camera mode indicator (center-top)
         let mode_text = match self.camera_mode {
@@ -488,9 +591,10 @@ impl SplitScreenGame {
         let text_w = measure_text(mode_text, None, 20, 1.0).width;
         draw_text(mode_text, screen_w / 2.0 - text_w / 2.0, 30.0, 20.0, YELLOW);
 
-        // Controls button (top-right corner)
-        draw_rectangle(screen_w - 50.0, 10.0, 40.0, 30.0, Color::from_rgba(100, 100, 100, 255));
-        draw_text("...", screen_w - 40.0, 32.0, 20.0, WHITE);
+        // "Press ENTER for controls" text at top-right
+        let help_text = "Press ENTER for controls";
+        let help_w = measure_text(help_text, None, 18, 1.0).width;
+        draw_text(help_text, screen_w - help_w - 20.0, 30.0, 18.0, LIGHTGRAY);
     }
 
     fn draw_controls_popup(&self) {
@@ -529,8 +633,8 @@ impl SplitScreenGame {
         let mut y = start_y + 40.0;
 
         let controls = [
-            ("A", "Rotate Left", "LEFT"),
-            ("D", "Rotate Right", "RIGHT"),
+            ("D", "Rotate Left", "RIGHT"),
+            ("A", "Rotate Right", "LEFT"),
             ("W", "Thrust", "UP"),
             ("Z", "Decrease Thrust", "COMMA"),
             ("X", "Increase Thrust", "PERIOD"),
