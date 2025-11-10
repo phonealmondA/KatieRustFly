@@ -31,8 +31,8 @@ impl PlayerInput {
     pub fn player1() -> Self {
         PlayerInput {
             player_id: 0,
-            rotate_left: KeyCode::A,
-            rotate_right: KeyCode::D,
+            rotate_left: KeyCode::D,
+            rotate_right: KeyCode::A,
             thrust: KeyCode::W,
             decrease_thrust: KeyCode::Z,
             increase_thrust: KeyCode::X,
@@ -47,8 +47,8 @@ impl PlayerInput {
     pub fn player2() -> Self {
         PlayerInput {
             player_id: 1,
-            rotate_left: KeyCode::Left,
-            rotate_right: KeyCode::Right,
+            rotate_left: KeyCode::Right,
+            rotate_right: KeyCode::Left,
             thrust: KeyCode::Up,
             decrease_thrust: KeyCode::Comma,
             increase_thrust: KeyCode::Period,

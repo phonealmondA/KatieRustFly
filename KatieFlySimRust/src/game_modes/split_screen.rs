@@ -601,8 +601,8 @@ impl SplitScreenGame {
         let mut y = start_y + 40.0;
 
         let controls = [
-            ("A", "Rotate Left", "LEFT"),
-            ("D", "Rotate Right", "RIGHT"),
+            ("D", "Rotate Left", "RIGHT"),
+            ("A", "Rotate Right", "LEFT"),
             ("W", "Thrust", "UP"),
             ("Z", "Decrease Thrust", "COMMA"),
             ("X", "Increase Thrust", "PERIOD"),
