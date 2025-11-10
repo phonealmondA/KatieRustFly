@@ -306,10 +306,42 @@ impl MultiplayerClient {
         // Render world
         self.world.render();
 
+        // Draw trajectory visualization for client's rocket
+        if let Some(rocket_id) = self.active_rocket_id {
+            if let Some(rocket) = self.world.get_rocket(rocket_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                self.vehicle_manager.draw_visualizations(
+                    rocket,
+                    &all_planets,
+                    self.camera.zoom_level(),
+                    self.camera.camera(),
+                );
+            }
+        }
+
         // Reset to default camera for UI
         set_default_camera();
 
-        // Show connection status
+        // Update and draw game info panels
+        if let Some(rocket_id) = self.active_rocket_id {
+            if let Some(rocket) = self.world.get_rocket(rocket_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                let satellite_stats = self.world.get_satellite_network_stats();
+
+                self.game_info.update_all_panels(
+                    Some(rocket),
+                    &all_planets,
+                    self.player_state.thrust_level(),
+                    self.connected,  // network_connected
+                    Some(self.player_id as usize),  // Client player ID
+                    1,  // player_count (just the client for now)
+                    Some(&satellite_stats),
+                );
+                self.game_info.draw_all_panels();
+            }
+        }
+
+        // Show connection status at bottom
         let status_color = if self.connected { GREEN } else { RED };
         let status_text = if self.connected {
             format!("CLIENT | Connected to {} | Player {}", self.host_addr, self.player_id)
@@ -324,6 +356,11 @@ impl MultiplayerClient {
             20.0,
             status_color,
         );
+
+        // Show "Press ENTER for controls" at top-right
+        let help_text = "Press ENTER for controls";
+        let help_w = measure_text(help_text, None, 18, 1.0).width;
+        draw_text(help_text, screen_width() - help_w - 20.0, 30.0, 18.0, LIGHTGRAY);
 
         if self.paused {
             draw_text(

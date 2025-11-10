@@ -82,6 +82,18 @@ impl VehicleManager {
         zoom_level: f32,
         camera: &Camera2D,
     ) {
+        self.draw_visualizations_with_color(rocket, planets, zoom_level, camera, None);
+    }
+
+    /// Draw vehicle visualizations with custom trajectory color
+    pub fn draw_visualizations_with_color(
+        &mut self,
+        rocket: &Rocket,
+        planets: &[&Planet],
+        zoom_level: f32,
+        camera: &Camera2D,
+        trajectory_color: Option<Color>,
+    ) {
         // Draw trajectory prediction
         if self.visualization.show_trajectory {
             let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
@@ -92,9 +104,12 @@ impl VehicleManager {
                 true, // detect self-intersection
             );
 
+            // Use custom color if provided, otherwise default to cyan
+            let color = trajectory_color.unwrap_or(Color::new(0.0, 1.0, 1.0, 0.6));
+
             self.trajectory_predictor.draw_trajectory(
                 &trajectory_points,
-                Color::new(0.0, 1.0, 1.0, 0.6), // Cyan
+                color,
                 self_intersects,
                 zoom_level,
             );
