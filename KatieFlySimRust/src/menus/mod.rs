@@ -7,5 +7,5 @@ pub mod online_multiplayer_menu;
 
 pub use main_menu::MainMenu;
 pub use saves_menu::{SavesMenu, SavesMenuResult};
-pub use multiplayer_menu::MultiplayerMenu;
+pub use multiplayer_menu::{MultiplayerMenu, MultiplayerMenuResult};
 pub use online_multiplayer_menu::OnlineMultiplayerMenu;

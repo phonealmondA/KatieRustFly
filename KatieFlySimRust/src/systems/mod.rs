@@ -5,6 +5,7 @@ pub mod fuel_transfer_network;
 pub mod orbit_maintenance;
 pub mod vehicle_manager;
 pub mod satellite_manager;
+pub mod player_input;
 
 pub use world::{World, EntityId};
 pub use fuel_transfer_network::{
@@ -20,3 +21,4 @@ pub use satellite_manager::{
     SatelliteManager, SatelliteStatus, SatelliteNetworkStats,
     SatelliteManagerConfig,
 };
+pub use player_input::{PlayerInput, PlayerInputState};
