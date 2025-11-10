@@ -59,12 +59,15 @@ impl SavedPlanet {
     }
 
     pub fn to_planet(&self) -> (EntityId, Planet) {
-        let planet = Planet::new(
+        let mut planet = Planet::new(
             self.position.clone().into(),
             self.radius,
             self.mass,
             Color::from_rgba(self.color.0, self.color.1, self.color.2, 255),
         );
+
+        // Restore velocity (critical for orbital mechanics!)
+        planet.set_velocity(self.velocity.clone().into());
 
         (self.id, planet)
     }
