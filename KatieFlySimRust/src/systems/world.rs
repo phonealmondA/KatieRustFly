@@ -76,6 +76,44 @@ impl World {
         id
     }
 
+    // === Entity Management with Specific IDs (for save/load) ===
+
+    /// Add a planet with a specific ID (for loading snapshots)
+    pub fn add_planet_with_id(&mut self, id: EntityId, planet: Planet) {
+        self.planets.insert(id, planet);
+        // Update next_id to ensure we don't reuse IDs
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
+    }
+
+    /// Add a rocket with a specific ID (for loading snapshots)
+    pub fn add_rocket_with_id(&mut self, id: EntityId, rocket: Rocket) {
+        self.rockets.insert(id, rocket);
+        // Update next_id to ensure we don't reuse IDs
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
+    }
+
+    /// Add a satellite with a specific ID (for loading snapshots)
+    pub fn add_satellite_with_id(&mut self, id: EntityId, satellite: Satellite) {
+        self.satellites.insert(id, satellite);
+        // Update next_id to ensure we don't reuse IDs
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
+    }
+
+    /// Clear all entities (for loading snapshots)
+    pub fn clear_all_entities(&mut self) {
+        self.planets.clear();
+        self.rockets.clear();
+        self.satellites.clear();
+        self.next_id = 0;
+        self.active_rocket_id = None;
+    }
+
     /// Convert rocket to satellite
     pub fn convert_rocket_to_satellite(&mut self, rocket_id: EntityId) -> Option<EntityId> {
         if let Some(rocket) = self.rockets.remove(&rocket_id) {
@@ -167,6 +205,21 @@ impl World {
     /// Get iterator over all satellites
     pub fn satellites(&self) -> impl Iterator<Item = &Satellite> {
         self.satellites.values()
+    }
+
+    /// Get iterator over all planets with their IDs (for save system)
+    pub fn planets_with_ids(&self) -> impl Iterator<Item = (EntityId, &Planet)> {
+        self.planets.iter().map(|(id, planet)| (*id, planet))
+    }
+
+    /// Get iterator over all rockets with their IDs (for save system)
+    pub fn rockets_with_ids(&self) -> impl Iterator<Item = (EntityId, &Rocket)> {
+        self.rockets.iter().map(|(id, rocket)| (*id, rocket))
+    }
+
+    /// Get iterator over all satellites with their IDs (for save system)
+    pub fn satellites_with_ids(&self) -> impl Iterator<Item = (EntityId, &Satellite)> {
+        self.satellites.iter().map(|(id, satellite)| (*id, satellite))
     }
 
     // === Entity Creation Helpers ===

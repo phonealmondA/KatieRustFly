@@ -1,5 +1,6 @@
-// Game Save Data - Serializable game state
-// Ported from C++ GameSaveData with serde
+// Game Save Data - Serializable game state snapshot
+// Used for both save files and network packets (multiplayer)
+// Uses bincode for compact binary serialization
 
 use serde::{Deserialize, Serialize};
 use macroquad::prelude::*;
@@ -109,7 +110,7 @@ impl SavedRocket {
         );
 
         rocket.set_fuel(self.fuel);
-        // Note: rotation will need to be set via a method if we add one
+        rocket.set_rotation(self.rotation);
 
         (self.id, rocket)
     }
@@ -200,70 +201,81 @@ pub struct SavedCamera {
     pub zoom: f32,
 }
 
-/// Complete game save data
+/// Complete game save data / state snapshot
+/// Used for both save files (disk) and network packets (multiplayer)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameSaveData {
     pub version: u32,
-    pub game_time: f32,
+    pub timestamp_secs: u64,        // Unix timestamp for ordering
+    pub game_time: f32,              // Elapsed game time
+
+    // World state
     pub planets: Vec<SavedPlanet>,
     pub rockets: Vec<SavedRocket>,
     pub satellites: Vec<SavedSatellite>,
+
+    // Player state (multiplayer support)
+    pub player_id: Option<u32>,      // None = single player, 0-19 = multiplayer
     pub active_rocket_id: Option<EntityId>,
+
+    // Camera (per-client, not synced in multiplayer)
     pub camera: SavedCamera,
-    pub save_timestamp: String,
 }
 
 impl GameSaveData {
     pub fn new() -> Self {
         GameSaveData {
             version: 1,
+            timestamp_secs: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
             game_time: 0.0,
             planets: Vec::new(),
             rockets: Vec::new(),
             satellites: Vec::new(),
+            player_id: None,  // Single player by default
             active_rocket_id: None,
             camera: SavedCamera {
                 center: SavedVector2 { x: 0.0, y: 0.0 },
                 zoom: 1.0,
             },
-            save_timestamp: format!("{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()),
         }
     }
 
-    /// Save to JSON file
+    /// Save to binary file using bincode
+    /// Binary format is compact and fast - perfect for both saves and network packets
     pub fn save_to_file(&self, save_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Create saves directory if it doesn't exist
         fs::create_dir_all("saves")?;
 
-        let file_path = format!("saves/{}.json", save_name);
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(&file_path, json)?;
+        let file_path = format!("saves/{}.sav", save_name);
+        let bytes = bincode::serialize(self)?;
+        let byte_count = bytes.len();
+        fs::write(&file_path, bytes)?;
 
-        log::info!("Game saved to: {}", file_path);
+        log::info!("Game saved to: {} ({} bytes)", file_path, byte_count);
         Ok(())
     }
 
-    /// Load from JSON file
+    /// Load from binary file using bincode
     pub fn load_from_file(save_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let file_path = format!("saves/{}.json", save_name);
+        let file_path = format!("saves/{}.sav", save_name);
 
         if !Path::new(&file_path).exists() {
             return Err(format!("Save file not found: {}", file_path).into());
         }
 
-        let json = fs::read_to_string(&file_path)?;
-        let save_data: GameSaveData = serde_json::from_str(&json)?;
+        let bytes = fs::read(&file_path)?;
+        let save_data: GameSaveData = bincode::deserialize(&bytes)?;
 
-        log::info!("Game loaded from: {}", file_path);
+        log::info!("Game loaded from: {} ({} bytes)", file_path, bytes.len());
         Ok(save_data)
     }
 
     /// Delete a save file
     pub fn delete_save(save_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let file_path = format!("saves/{}.json", save_name);
+        let file_path = format!("saves/{}.sav", save_name);
         fs::remove_file(&file_path)?;
         log::info!("Deleted save: {}", file_path);
         Ok(())
@@ -271,8 +283,18 @@ impl GameSaveData {
 
     /// Check if a save exists
     pub fn save_exists(save_name: &str) -> bool {
-        let file_path = format!("saves/{}.json", save_name);
+        let file_path = format!("saves/{}.sav", save_name);
         Path::new(&file_path).exists()
+    }
+
+    /// Serialize to bytes (for network packets)
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        Ok(bincode::serialize(self)?)
+    }
+
+    /// Deserialize from bytes (for network packets)
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(bincode::deserialize(bytes)?)
     }
 }
 
@@ -309,10 +331,28 @@ mod tests {
     #[test]
     fn test_serialization() {
         let save_data = GameSaveData::new();
-        let json = serde_json::to_string(&save_data);
-        assert!(json.is_ok());
 
-        let deserialized: Result<GameSaveData, _> = serde_json::from_str(&json.unwrap());
+        // Test bincode serialization
+        let bytes = bincode::serialize(&save_data);
+        assert!(bytes.is_ok());
+
+        let deserialized: Result<GameSaveData, _> = bincode::deserialize(&bytes.unwrap());
         assert!(deserialized.is_ok());
+    }
+
+    #[test]
+    fn test_to_from_bytes() {
+        let save_data = GameSaveData::new();
+
+        // Test to_bytes/from_bytes methods (for network packets)
+        let bytes = save_data.to_bytes();
+        assert!(bytes.is_ok());
+
+        let restored = GameSaveData::from_bytes(&bytes.unwrap());
+        assert!(restored.is_ok());
+
+        let restored_data = restored.unwrap();
+        assert_eq!(restored_data.version, save_data.version);
+        assert_eq!(restored_data.player_id, None);
     }
 }

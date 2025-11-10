@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 
 use crate::entities::{GameObject, Planet, Rocket};
 use crate::game_constants::GameConstants;
-use crate::save_system::{GameSaveData, SavedCamera};
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, VehicleManager};
 use crate::ui::{Camera, GameInfoDisplay};
 
@@ -133,38 +133,10 @@ impl SinglePlayerGame {
         log::info!("New game initialized");
     }
 
-    /// Load game from save data
+    /// Load game from save data (used by saves menu)
     pub fn load_from_save(&mut self, save_data: GameSaveData, save_name: String) {
-        self.world.clear_all();
-        self.game_time = save_data.game_time;
-
-        // Load planets
-        for saved_planet in save_data.planets {
-            let (_id, planet) = saved_planet.to_planet();
-            self.world.add_planet(planet);
-        }
-
-        // Load rockets
-        for saved_rocket in save_data.rockets {
-            let (_id, rocket) = saved_rocket.to_rocket();
-            self.world.add_rocket(rocket);
-        }
-
-        // Load satellites
-        for saved_satellite in save_data.satellites {
-            let (_id, satellite) = saved_satellite.to_satellite();
-            self.world.add_satellite(satellite);
-        }
-
-        // Set active rocket
-        self.world.set_active_rocket(save_data.active_rocket_id);
-
-        // Restore camera
-        self.camera.set_center(save_data.camera.center.into());
-        self.camera.set_target_zoom(save_data.camera.zoom);
-
+        self.load_from_snapshot(save_data);
         self.current_save_name = Some(save_name.clone());
-
         log::info!("Game loaded from save: {}", save_name);
     }
 
@@ -176,21 +148,99 @@ impl SinglePlayerGame {
         Ok(())
     }
 
-    /// Create save data from current game state
+    /// Load game state from save file
+    pub fn load_game(&mut self, save_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let save_data = GameSaveData::load_from_file(save_name)?;
+        self.load_from_snapshot(save_data);
+        self.current_save_name = Some(save_name.to_string());
+        log::info!("Game loaded: {}", save_name);
+        Ok(())
+    }
+
+    /// Load game state from a snapshot (works for both save files and network packets)
+    fn load_from_snapshot(&mut self, snapshot: GameSaveData) {
+        // Clear existing world
+        self.world.clear_all_entities();
+
+        // Restore game time
+        self.game_time = snapshot.game_time;
+
+        // Save counts for logging before consuming vectors
+        let planet_count = snapshot.planets.len();
+        let rocket_count = snapshot.rockets.len();
+        let satellite_count = snapshot.satellites.len();
+
+        // Restore all planets with their original IDs
+        for saved_planet in snapshot.planets {
+            let (id, planet) = saved_planet.to_planet();
+            self.world.add_planet_with_id(id, planet);
+        }
+
+        // Restore all rockets with their original IDs
+        for saved_rocket in snapshot.rockets {
+            let (id, rocket) = saved_rocket.to_rocket();
+            self.world.add_rocket_with_id(id, rocket);
+        }
+
+        // Restore all satellites with their original IDs
+        for saved_satellite in snapshot.satellites {
+            let (id, satellite) = saved_satellite.to_satellite();
+            self.world.add_satellite_with_id(id, satellite);
+        }
+
+        // Restore active rocket
+        self.world.set_active_rocket(snapshot.active_rocket_id);
+
+        // Restore camera
+        self.camera.set_center(snapshot.camera.center.into());
+        self.camera.set_target_zoom(snapshot.camera.zoom);
+
+        log::info!(
+            "Loaded snapshot: {} planets, {} rockets, {} satellites at time {:.1}s",
+            planet_count,
+            rocket_count,
+            satellite_count,
+            snapshot.game_time
+        );
+    }
+
+    /// Create complete snapshot from current game state
+    /// This snapshot can be used for both save files and network packets (multiplayer)
     fn create_save_data(&self) -> GameSaveData {
         let mut save_data = GameSaveData::new();
         save_data.game_time = self.game_time;
 
-        // Save planets (we need to iterate with IDs - simplified for now)
-        // In a real implementation, World would provide an iterator with IDs
+        // Save all planets with their IDs
+        save_data.planets = self.world.planets_with_ids()
+            .map(|(id, planet)| SavedPlanet::from_planet(id, planet))
+            .collect();
 
-        // Save camera
+        // Save all rockets with their IDs
+        save_data.rockets = self.world.rockets_with_ids()
+            .map(|(id, rocket)| SavedRocket::from_rocket(id, rocket))
+            .collect();
+
+        // Save all satellites with their IDs
+        save_data.satellites = self.world.satellites_with_ids()
+            .map(|(id, satellite)| SavedSatellite::from_satellite(id, satellite))
+            .collect();
+
+        // Save player state
+        save_data.player_id = None;  // Single player
+        save_data.active_rocket_id = self.world.active_rocket_id();
+
+        // Save camera state
         save_data.camera = SavedCamera {
             center: self.camera.camera().target.into(),
             zoom: self.camera.zoom_level(),
         };
 
-        save_data.active_rocket_id = self.world.active_rocket_id();
+        log::info!(
+            "Created snapshot: {} planets, {} rockets, {} satellites",
+            save_data.planets.len(),
+            save_data.rockets.len(),
+            save_data.satellites.len()
+        );
 
         save_data
     }

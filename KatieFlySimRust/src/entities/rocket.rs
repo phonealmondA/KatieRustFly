@@ -206,6 +206,10 @@ impl Rocket {
         self.rotation = self.rotation.rem_euclid(2.0 * std::f32::consts::PI);
     }
 
+    pub fn set_rotation(&mut self, rotation: f32) {
+        self.rotation = rotation.rem_euclid(2.0 * std::f32::consts::PI);
+    }
+
     pub fn rotation(&self) -> f32 {
         self.rotation
     }
