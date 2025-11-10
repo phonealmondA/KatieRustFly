@@ -112,7 +112,9 @@ impl SavedRocket {
             GameConstants::ROCKET_BASE_MASS,
         );
 
-        rocket.set_fuel(self.fuel);
+        // Use set_fuel_direct to avoid momentum preservation during load
+        // (velocity is already correct from the save, changing mass shouldn't affect it)
+        rocket.set_fuel_direct(self.fuel);
         rocket.set_rotation(self.rotation);
 
         (self.id, rocket)
