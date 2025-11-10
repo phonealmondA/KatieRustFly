@@ -116,12 +116,12 @@ impl SavesMenu {
 
         let mut saves = Vec::new();
 
-        // Read all .json files in saves directory
+        // Read all .sav files in saves directory
         for entry in fs::read_dir(saves_dir)? {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            if path.extension().and_then(|s| s.to_str()) == Some("sav") {
                 if let Some(file_name) = path.file_stem().and_then(|s| s.to_str()) {
                     saves.push(file_name.to_string());
                 }
