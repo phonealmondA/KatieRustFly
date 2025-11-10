@@ -48,6 +48,7 @@ pub struct MultiplayerHost {
     // Game state
     window_size: Vec2,
     paused: bool,
+    show_controls: bool,
     current_save_name: Option<String>,
 }
 
@@ -81,6 +82,7 @@ impl MultiplayerHost {
 
             window_size,
             paused: false,
+            show_controls: false,
             current_save_name: None,
         })
     }
@@ -178,21 +180,61 @@ impl MultiplayerHost {
 
     /// Handle input for the host player
     pub fn handle_input(&mut self) -> MultiplayerHostResult {
-        // ESC - return to menu
+        // ESC - return to menu or close controls popup
         if is_key_pressed(KeyCode::Escape) {
-            log::info!("ESC pressed - returning to menu");
-            return MultiplayerHostResult::ReturnToMenu;
+            if self.show_controls {
+                self.show_controls = false;
+                self.paused = false;
+            } else {
+                log::info!("ESC pressed - returning to menu");
+                return MultiplayerHostResult::ReturnToMenu;
+            }
         }
 
-        // Q - quit
-        if is_key_pressed(KeyCode::Q) {
-            return MultiplayerHostResult::Quit;
+        // Enter - toggle controls menu
+        if is_key_pressed(KeyCode::Enter) {
+            self.show_controls = !self.show_controls;
+            self.paused = self.show_controls; // Pause when showing controls
         }
 
-        // P - pause/unpause
-        if is_key_pressed(KeyCode::P) {
+        // Panel visibility toggles (keys 1-5)
+        if is_key_pressed(KeyCode::Key1) {
+            self.game_info.toggle_rocket_panel();
+        }
+        if is_key_pressed(KeyCode::Key2) {
+            self.game_info.toggle_planet_panel();
+        }
+        if is_key_pressed(KeyCode::Key3) {
+            self.game_info.toggle_orbit_panel();
+        }
+        if is_key_pressed(KeyCode::Key4) {
+            self.game_info.toggle_controls_panel();
+        }
+        if is_key_pressed(KeyCode::Key5) {
+            self.game_info.toggle_network_panel();
+        }
+        // Key 0 to toggle all panels
+        if is_key_pressed(KeyCode::Key0) {
+            self.game_info.show_all_panels();
+        }
+        if is_key_pressed(KeyCode::Key9) {
+            self.game_info.hide_all_panels();
+        }
+
+        // P - pause/unpause (only if controls not showing)
+        if is_key_pressed(KeyCode::P) && !self.show_controls {
             self.paused = !self.paused;
             log::info!("Game {}", if self.paused { "paused" } else { "unpaused" });
+        }
+
+        // Visualization toggles
+        if is_key_pressed(KeyCode::T) {
+            self.vehicle_manager.toggle_trajectory();
+            log::info!("Toggled trajectory visualization: {}", self.vehicle_manager.visualization().show_trajectory);
+        }
+        if is_key_pressed(KeyCode::G) {
+            self.vehicle_manager.toggle_gravity_forces();
+            log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
 
         // F - save game
@@ -474,6 +516,9 @@ impl MultiplayerHost {
             }
         }
 
+        // Draw visualization HUD (shows T and G key status)
+        self.vehicle_manager.draw_visualization_hud();
+
         // Show host status at bottom
         let clients = self.clients.lock().unwrap();
         draw_text(
@@ -489,7 +534,7 @@ impl MultiplayerHost {
         let help_w = measure_text(help_text, None, 18, 1.0).width;
         draw_text(help_text, screen_width() - help_w - 20.0, 30.0, 18.0, LIGHTGRAY);
 
-        if self.paused {
+        if self.paused && !self.show_controls {
             draw_text(
                 "PAUSED",
                 screen_width() / 2.0 - 50.0,
@@ -498,6 +543,124 @@ impl MultiplayerHost {
                 YELLOW,
             );
         }
+
+        // Draw controls popup if showing
+        if self.show_controls {
+            self.draw_controls_popup();
+        }
+    }
+
+    fn draw_controls_popup(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let popup_w = 800.0;
+        let popup_h = 600.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.5));
+
+        // Popup background
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::new(0.1, 0.1, 0.1, 0.95));
+        // Popup border
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 3.0, WHITE);
+
+        // Title
+        let title = "MULTIPLAYER HOST CONTROLS";
+        let title_size = 32.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            popup_x + popup_w / 2.0 - title_dims.width / 2.0,
+            popup_y + 40.0,
+            title_size,
+            WHITE,
+        );
+
+        // Controls list - Two columns
+        let controls_left = [
+            ("COMMA", "Decrease thrust -5%"),
+            ("PERIOD", "Increase thrust +5%"),
+            ("SPACE", "Apply thrust"),
+            ("A / LEFT", "Rotate left"),
+            ("D / RIGHT", "Rotate right"),
+            ("Q", "Zoom in"),
+            ("E", "Zoom out"),
+            ("MOUSE WHEEL", "Zoom"),
+            ("C", "Convert to satellite"),
+            ("P", "Pause/Unpause"),
+        ];
+
+        let controls_right = [
+            ("T", "Toggle trajectory"),
+            ("G", "Toggle gravity forces"),
+            ("1", "Toggle rocket panel"),
+            ("2", "Toggle planet panel"),
+            ("3", "Toggle orbit panel"),
+            ("4", "Toggle controls panel"),
+            ("5", "Toggle network panel"),
+            ("9", "Hide all panels"),
+            ("0", "Show all panels"),
+            ("F", "Save game"),
+            ("ENTER", "Toggle this menu"),
+            ("ESC", "Return to menu"),
+        ];
+
+        let font_size = 17.0;
+        let line_height = 32.0;
+        let col_spacing = popup_w / 2.0;
+
+        // Draw left column
+        let mut y = popup_y + 85.0;
+        for (key, action) in &controls_left {
+            draw_text(
+                key,
+                popup_x + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Draw right column
+        y = popup_y + 85.0;
+        for (key, action) in &controls_right {
+            draw_text(
+                key,
+                popup_x + col_spacing + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + col_spacing + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Footer text
+        let footer = "Click outside or press ESC to close";
+        let footer_dims = measure_text(footer, None, 14, 1.0);
+        draw_text(
+            footer,
+            popup_x + popup_w / 2.0 - footer_dims.width / 2.0,
+            popup_y + popup_h - 20.0,
+            14.0,
+            Color::new(0.7, 0.7, 0.7, 1.0),
+        );
     }
 
     /// Get connected client count
