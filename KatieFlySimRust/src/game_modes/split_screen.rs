@@ -329,36 +329,26 @@ impl SplitScreenGame {
             self.player2_info_display.hide_all_panels();
         }
 
-        // Handle scroll wheel zoom - switches to ShowBoth mode and applies zoom
+        // Handle scroll wheel zoom (same as singleplayer)
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
-            self.camera_mode = CameraMode::ShowBoth;
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
         }
 
-        // Handle keyboard zoom based on camera mode
-        match self.camera_mode {
-            CameraMode::FocusPlayer1(_) => {
-                // Player 1 focused: use Q+E zoom controls
-                if is_key_down(KeyCode::Q) {
-                    self.camera.adjust_zoom(-0.02); // Q = zoom in
-                }
-                if is_key_down(KeyCode::E) {
-                    self.camera.adjust_zoom(0.02); // E = zoom out
-                }
-            }
-            CameraMode::FocusPlayer2(_) => {
-                // Player 2 focused: use /+' zoom controls
-                if is_key_down(KeyCode::Slash) {
-                    self.camera.adjust_zoom(-0.02); // / = zoom in
-                }
-                if is_key_down(KeyCode::Apostrophe) {
-                    self.camera.adjust_zoom(0.02); // ' = zoom out
-                }
-            }
-            CameraMode::ShowBoth => {
-                // No keyboard zoom when showing both players
-            }
+        // Player 1 keyboard zoom controls (Q = zoom in, E = zoom out, same as singleplayer)
+        if is_key_down(KeyCode::Q) {
+            self.camera.adjust_zoom(-0.02); // Q = zoom in
+        }
+        if is_key_down(KeyCode::E) {
+            self.camera.adjust_zoom(0.02); // E = zoom out
+        }
+
+        // Player 2 keyboard zoom controls (/ = zoom in, ' = zoom out)
+        if is_key_down(KeyCode::Slash) {
+            self.camera.adjust_zoom(-0.02); // / = zoom in
+        }
+        if is_key_down(KeyCode::Apostrophe) {
+            self.camera.adjust_zoom(0.02); // ' = zoom out
         }
 
         if self.is_paused {
@@ -639,8 +629,8 @@ impl SplitScreenGame {
             ("Z", "Decrease Thrust", "COMMA"),
             ("X", "Increase Thrust", "PERIOD"),
             ("C", "Convert to Satellite", "]"),
-            ("Q", "Zoom Out", "/"),
-            ("E", "Zoom In", "'"),
+            ("Q", "Zoom In", "/"),
+            ("E", "Zoom Out", "'"),
             ("R", "Focus Camera (10s)", ";"),
         ];
 
