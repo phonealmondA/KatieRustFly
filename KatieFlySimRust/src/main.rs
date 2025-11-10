@@ -5,9 +5,20 @@
 use macroquad::prelude::*;
 
 use katie_fly_sim_rust::game_constants::GameConstants;
-use katie_fly_sim_rust::game_modes::{SinglePlayerGame, SinglePlayerResult};
+use katie_fly_sim_rust::game_modes::{
+    SinglePlayerGame, SinglePlayerResult,
+    SplitScreenGame, SplitScreenResult,
+    MultiplayerHost, MultiplayerHostResult,
+    MultiplayerClient, MultiplayerClientResult,
+};
 use katie_fly_sim_rust::game_state::{GameMode, GameState};
-use katie_fly_sim_rust::menus::{MainMenu, SavesMenu, SavesMenuResult};
+use katie_fly_sim_rust::menus::{
+    MainMenu, SavesMenu, SavesMenuResult,
+    MultiplayerMenu, MultiplayerMenuResult,
+    OnlineMultiplayerMenu, OnlineMultiplayerMenuResult,
+    OnlineHostMenu, OnlineHostMenuResult,
+    OnlineJoinMenu, OnlineJoinMenuResult,
+};
 use katie_fly_sim_rust::save_system::GameSaveData;
 
 // Window configuration
@@ -42,7 +53,14 @@ async fn main() {
     let mut game_state = GameState::MainMenu;
     let mut main_menu = MainMenu::new(window_size);
     let mut saves_menu = SavesMenu::new(window_size);
+    let mut multiplayer_menu = MultiplayerMenu::new(window_size);
+    let mut online_multiplayer_menu = OnlineMultiplayerMenu::new(window_size);
+    let mut online_host_menu = OnlineHostMenu::new(window_size);
+    let mut online_join_menu = OnlineJoinMenu::new(window_size);
     let mut single_player_game: Option<SinglePlayerGame> = None;
+    let mut split_screen_game: Option<SplitScreenGame> = None;
+    let mut multiplayer_host: Option<MultiplayerHost> = None;
+    let mut multiplayer_client: Option<MultiplayerClient> = None;
 
     // Frame tracking
     let mut frame_count = 0u64;
@@ -67,7 +85,8 @@ async fn main() {
                         saves_menu.refresh_saves();
                     }
                     GameMode::Multiplayer => {
-                        log::info!("Multiplayer not yet implemented");
+                        log::info!("Multiplayer mode selected");
+                        game_state = GameState::MultiplayerMenu;
                     }
                     GameMode::Quit => {
                         log::info!("Quit selected");
@@ -138,35 +157,154 @@ async fn main() {
                 break;
             }
 
-            // Multiplayer states (not yet implemented in main.rs)
             GameState::MultiplayerMenu => {
-                // TODO: Implement multiplayer menu handling
-                log::warn!("MultiplayerMenu state not yet implemented in main.rs");
-                game_state = GameState::MainMenu;
-            }
-
-            GameState::OnlineMultiplayerMenu => {
-                // TODO: Implement online multiplayer menu handling
-                log::warn!("OnlineMultiplayerMenu state not yet implemented in main.rs");
-                game_state = GameState::MultiplayerMenu;
-            }
-
-            GameState::MultiplayerHost => {
-                // TODO: Implement multiplayer host handling
-                log::warn!("MultiplayerHost state not yet implemented in main.rs");
-                game_state = GameState::MultiplayerMenu;
-            }
-
-            GameState::MultiplayerClient => {
-                // TODO: Implement multiplayer client handling
-                log::warn!("MultiplayerClient state not yet implemented in main.rs");
-                game_state = GameState::MultiplayerMenu;
+                let result = multiplayer_menu.update();
+                match result {
+                    MultiplayerMenuResult::SplitScreen => {
+                        log::info!("Split-Screen selected");
+                        let mut new_game = SplitScreenGame::new(window_size);
+                        new_game.initialize_new_game();
+                        split_screen_game = Some(new_game);
+                        game_state = GameState::SplitScreen;
+                    }
+                    MultiplayerMenuResult::OnlineMultiplayer => {
+                        log::info!("Online Multiplayer selected");
+                        game_state = GameState::OnlineMultiplayerMenu;
+                    }
+                    MultiplayerMenuResult::Back => {
+                        log::info!("Returning to main menu from multiplayer");
+                        game_state = GameState::MainMenu;
+                    }
+                    MultiplayerMenuResult::None => {}
+                }
             }
 
             GameState::SplitScreen => {
-                // TODO: Implement split screen handling
-                log::warn!("SplitScreen state not yet implemented in main.rs");
-                game_state = GameState::MultiplayerMenu;
+                if let Some(ref mut game) = split_screen_game {
+                    // Handle input
+                    match game.handle_input() {
+                        SplitScreenResult::ReturnToMenu => {
+                            log::info!("Returning to multiplayer menu from split-screen");
+                            game_state = GameState::MultiplayerMenu;
+                        }
+                        SplitScreenResult::Quit => {
+                            log::info!("Quit requested from split-screen");
+                            break;
+                        }
+                        _ => {}
+                    }
+
+                    // Update game
+                    game.update(delta_time);
+                }
+            }
+
+            GameState::OnlineMultiplayerMenu => {
+                let result = online_multiplayer_menu.update();
+                match result {
+                    OnlineMultiplayerMenuResult::Host => {
+                        log::info!("Host selected - showing host menu");
+                        game_state = GameState::OnlineHostMenu;
+                    }
+                    OnlineMultiplayerMenuResult::Join => {
+                        log::info!("Join selected - showing join menu");
+                        game_state = GameState::OnlineJoinMenu;
+                    }
+                    OnlineMultiplayerMenuResult::Back => {
+                        log::info!("Returning to multiplayer menu from online menu");
+                        game_state = GameState::MultiplayerMenu;
+                    }
+                    OnlineMultiplayerMenuResult::None => {}
+                }
+            }
+
+            GameState::OnlineHostMenu => {
+                let result = online_host_menu.update();
+                match result {
+                    OnlineHostMenuResult::StartHost(port) => {
+                        log::info!("Starting multiplayer host on port {}", port);
+                        match MultiplayerHost::new(window_size, port) {
+                            Ok(mut host) => {
+                                host.initialize_new_game();
+                                multiplayer_host = Some(host);
+                                game_state = GameState::MultiplayerHost;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to start host: {}", e);
+                                // Stay in menu
+                            }
+                        }
+                    }
+                    OnlineHostMenuResult::Back => {
+                        log::info!("Returning to online multiplayer menu from host menu");
+                        game_state = GameState::OnlineMultiplayerMenu;
+                    }
+                    OnlineHostMenuResult::None => {}
+                }
+            }
+
+            GameState::OnlineJoinMenu => {
+                let result = online_join_menu.update();
+                match result {
+                    OnlineJoinMenuResult::Connect(ip, port) => {
+                        log::info!("Connecting to {}:{}", ip, port);
+                        match MultiplayerClient::new(window_size, &ip, port) {
+                            Ok(client) => {
+                                multiplayer_client = Some(client);
+                                game_state = GameState::MultiplayerClient;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to connect: {}", e);
+                                // Stay in menu
+                            }
+                        }
+                    }
+                    OnlineJoinMenuResult::Back => {
+                        log::info!("Returning to online multiplayer menu from join menu");
+                        game_state = GameState::OnlineMultiplayerMenu;
+                    }
+                    OnlineJoinMenuResult::None => {}
+                }
+            }
+
+            GameState::MultiplayerHost => {
+                if let Some(ref mut host) = multiplayer_host {
+                    match host.handle_input() {
+                        MultiplayerHostResult::ReturnToMenu => {
+                            log::info!("Returning to multiplayer menu from host");
+                            game_state = GameState::MultiplayerMenu;
+                        }
+                        MultiplayerHostResult::Quit => {
+                            log::info!("Quit requested from host");
+                            break;
+                        }
+                        _ => {}
+                    }
+
+                    host.update(delta_time);
+                }
+            }
+
+            GameState::MultiplayerClient => {
+                if let Some(ref mut client) = multiplayer_client {
+                    match client.handle_input() {
+                        MultiplayerClientResult::ReturnToMenu => {
+                            log::info!("Returning to multiplayer menu from client");
+                            game_state = GameState::MultiplayerMenu;
+                        }
+                        MultiplayerClientResult::Quit => {
+                            log::info!("Quit requested from client");
+                            break;
+                        }
+                        MultiplayerClientResult::ConnectionLost => {
+                            log::warn!("Connection to host lost");
+                            game_state = GameState::MultiplayerMenu;
+                        }
+                        _ => {}
+                    }
+
+                    client.update(delta_time);
+                }
             }
         }
 
@@ -182,26 +320,46 @@ async fn main() {
                 saves_menu.draw();
             }
 
+            GameState::MultiplayerMenu => {
+                multiplayer_menu.draw();
+            }
+
             GameState::Playing | GameState::Paused => {
                 if let Some(ref mut game) = single_player_game {
                     game.render();
                 }
             }
 
+            GameState::SplitScreen => {
+                if let Some(ref mut game) = split_screen_game {
+                    game.render();
+                }
+            }
+
             GameState::Quit => {}
 
-            // Multiplayer rendering (placeholders)
-            GameState::MultiplayerMenu |
-            GameState::OnlineMultiplayerMenu |
-            GameState::MultiplayerHost |
-            GameState::MultiplayerClient |
-            GameState::SplitScreen => {
-                // Placeholder rendering - will be implemented when integrating multiplayer into main.rs
-                draw_text("Multiplayer mode (implementation pending)",
-                    screen_width() / 2.0 - 200.0,
-                    screen_height() / 2.0,
-                    30.0,
-                    WHITE);
+            GameState::OnlineMultiplayerMenu => {
+                online_multiplayer_menu.draw();
+            }
+
+            GameState::OnlineHostMenu => {
+                online_host_menu.draw();
+            }
+
+            GameState::OnlineJoinMenu => {
+                online_join_menu.draw();
+            }
+
+            GameState::MultiplayerHost => {
+                if let Some(ref mut host) = multiplayer_host {
+                    host.render();
+                }
+            }
+
+            GameState::MultiplayerClient => {
+                if let Some(ref mut client) = multiplayer_client {
+                    client.render();
+                }
             }
         }
 
