@@ -393,8 +393,8 @@ impl SinglePlayerGame {
             }
         }
 
-        // Convert to satellite (T key)
-        if is_key_pressed(KeyCode::T) {
+        // Convert to satellite (C key)
+        if is_key_pressed(KeyCode::C) {
             if let Some(rocket_id) = self.world.active_rocket_id() {
                 // Convert rocket to satellite
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
@@ -505,8 +505,8 @@ impl SinglePlayerGame {
         // Draw controls popup if showing
         if self.show_controls {
             let screen_h = screen_height();
-            let popup_w = 400.0;
-            let popup_h = 500.0;
+            let popup_w = 800.0;  // Wider for two columns
+            let popup_h = 600.0;  // Taller to fit more controls
             let popup_x = screen_w / 2.0 - popup_w / 2.0;
             let popup_y = screen_h / 2.0 - popup_h / 2.0;
 
@@ -530,30 +530,42 @@ impl SinglePlayerGame {
                 WHITE,
             );
 
-            // Controls list
-            let controls = [
+            // Controls list - Split into two columns
+            let controls_left = [
                 ("COMMA", "Decrease thrust -5%"),
                 ("PERIOD", "Increase thrust +5%"),
                 ("SPACE", "Apply thrust"),
-                ("A / LEFT", "Rotate right"),
-                ("D / RIGHT", "Rotate left"),
+                ("A / LEFT", "Rotate left"),
+                ("D / RIGHT", "Rotate right"),
                 ("Q", "Zoom in"),
                 ("E", "Zoom out"),
                 ("MOUSE WHEEL", "Zoom"),
-                ("L", "Convert to satellite"),
-                ("T", "Launch new rocket"),
+                ("C", "Convert to satellite"),
                 ("P", "Pause/Unpause"),
-                ("F5", "Quick save"),
-                ("ENTER", "Toggle this menu"),
-                ("ESC", "Return to menu / Close this"),
             ];
 
-            let mut y = popup_y + 80.0;
-            let font_size = 18.0;
-            let line_height = 35.0;
+            let controls_right = [
+                ("T", "Toggle trajectory"),
+                ("G", "Toggle gravity forces"),
+                ("1", "Toggle rocket panel"),
+                ("2", "Toggle planet panel"),
+                ("3", "Toggle orbit panel"),
+                ("4", "Toggle controls panel"),
+                ("5", "Toggle network panel"),
+                ("9", "Hide all panels"),
+                ("0", "Show all panels"),
+                ("F5", "Quick save"),
+                ("ENTER", "Toggle this menu"),
+                ("ESC", "Return to menu"),
+            ];
 
-            for (key, action) in &controls {
-                // Draw key
+            let font_size = 17.0;
+            let line_height = 32.0;
+            let col_spacing = popup_w / 2.0;
+
+            // Draw left column
+            let mut y = popup_y + 85.0;
+            for (key, action) in &controls_left {
                 draw_text(
                     key,
                     popup_x + 30.0,
@@ -561,16 +573,33 @@ impl SinglePlayerGame {
                     font_size,
                     Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
                 );
-
-                // Draw action
                 draw_text(
                     action,
-                    popup_x + 200.0,
+                    popup_x + 160.0,
                     y,
                     font_size,
                     WHITE,
                 );
+                y += line_height;
+            }
 
+            // Draw right column
+            y = popup_y + 85.0;
+            for (key, action) in &controls_right {
+                draw_text(
+                    key,
+                    popup_x + col_spacing + 30.0,
+                    y,
+                    font_size,
+                    Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+                );
+                draw_text(
+                    action,
+                    popup_x + col_spacing + 160.0,
+                    y,
+                    font_size,
+                    WHITE,
+                );
                 y += line_height;
             }
 
