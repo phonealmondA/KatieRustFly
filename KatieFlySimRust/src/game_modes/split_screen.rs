@@ -1,551 +1,555 @@
-// Split Screen Mode - Local multiplayer with viewports
-// Phase 13: Split Screen
+// Split-Screen Multiplayer - Two players on same device
+// Shared world simulation with separate controls and dynamic camera
 
 use macroquad::prelude::*;
-use crate::systems::World;
-use crate::ui::Camera;
-use crate::entities::Rocket;
 
-/// Input mapping for each player
-#[derive(Debug, Clone, Copy)]
-pub struct PlayerInputMapping {
-    pub thrust: KeyCode,
-    pub rotate_left: KeyCode,
-    pub rotate_right: KeyCode,
-    pub launch: KeyCode,
-    pub convert_to_satellite: KeyCode,
+use crate::entities::{GameObject, Planet, Rocket};
+use crate::game_constants::GameConstants;
+use crate::save_system::GameSaveData;
+use crate::systems::{World, VehicleManager, PlayerInput, PlayerInputState, EntityId};
+use crate::ui::{Camera, GameInfoDisplay};
+
+/// Camera mode for split-screen
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CameraMode {
+    ShowBoth,               // Default: show both players
+    FocusPlayer1(u32),      // Focus on P1, with remaining time in deciseconds
+    FocusPlayer2(u32),      // Focus on P2, with remaining time in deciseconds
 }
 
-impl PlayerInputMapping {
-    /// Player 1 controls (WASD + Space)
-    pub fn player1() -> Self {
-        PlayerInputMapping {
-            thrust: KeyCode::W,
-            rotate_left: KeyCode::A,
-            rotate_right: KeyCode::D,
-            launch: KeyCode::Space,
-            convert_to_satellite: KeyCode::S,
-        }
-    }
-
-    /// Player 2 controls (Arrow Keys + Enter)
-    pub fn player2() -> Self {
-        PlayerInputMapping {
-            thrust: KeyCode::Up,
-            rotate_left: KeyCode::Left,
-            rotate_right: KeyCode::Right,
-            launch: KeyCode::Enter,
-            convert_to_satellite: KeyCode::Down,
-        }
-    }
-
-    /// Check if thrust key is pressed
-    pub fn is_thrust_pressed(&self) -> bool {
-        is_key_down(self.thrust)
-    }
-
-    /// Check if rotate left key is pressed
-    pub fn is_rotate_left_pressed(&self) -> bool {
-        is_key_down(self.rotate_left)
-    }
-
-    /// Check if rotate right key is pressed
-    pub fn is_rotate_right_pressed(&self) -> bool {
-        is_key_down(self.rotate_right)
-    }
-
-    /// Check if launch key is just pressed
-    pub fn is_launch_pressed(&self) -> bool {
-        is_key_pressed(self.launch)
-    }
-
-    /// Check if convert to satellite key is just pressed
-    pub fn is_convert_pressed(&self) -> bool {
-        is_key_pressed(self.convert_to_satellite)
-    }
+/// Split-screen game result
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SplitScreenResult {
+    Continue,
+    ReturnToMenu,
+    Quit,
 }
 
-/// Split screen viewport
-pub struct Viewport {
-    camera: Camera,
-    rect: Rect,
-    player_index: usize,
-    rocket_id: Option<usize>,
-    input_mapping: PlayerInputMapping,
-}
-
-impl Viewport {
-    pub fn new(rect: Rect, player_index: usize) -> Self {
-        let input_mapping = if player_index == 0 {
-            PlayerInputMapping::player1()
-        } else {
-            PlayerInputMapping::player2()
-        };
-
-        Viewport {
-            camera: Camera::new(Vec2::new(rect.w, rect.h)),
-            rect,
-            player_index,
-            rocket_id: None,
-            input_mapping,
-        }
-    }
-
-    pub fn camera(&self) -> &Camera {
-        &self.camera
-    }
-
-    pub fn camera_mut(&mut self) -> &mut Camera {
-        &mut self.camera
-    }
-
-    pub fn rect(&self) -> Rect {
-        self.rect
-    }
-
-    pub fn player_index(&self) -> usize {
-        self.player_index
-    }
-
-    pub fn set_rocket_id(&mut self, rocket_id: Option<usize>) {
-        self.rocket_id = rocket_id;
-    }
-
-    pub fn rocket_id(&self) -> Option<usize> {
-        self.rocket_id
-    }
-
-    pub fn input_mapping(&self) -> &PlayerInputMapping {
-        &self.input_mapping
-    }
-
-    /// Update viewport camera to follow rocket
-    pub fn update_camera(&mut self, world: &World, delta_time: f32) {
-        if let Some(rocket_id) = self.rocket_id {
-            if let Some(rocket) = world.get_rocket(rocket_id) {
-                self.camera.follow(rocket.position());
-            }
-        }
-
-        self.camera.update(delta_time);
-    }
-}
-
-/// Split Screen Manager
-pub struct SplitScreenMode {
+/// Split-screen multiplayer game mode
+pub struct SplitScreenGame {
     world: World,
-    viewports: Vec<Viewport>,
-    running: bool,
-    player_count: usize,
+    camera: Camera,
+    info_display: GameInfoDisplay,
+    vehicle_manager: VehicleManager,
+    game_time: f32,
+    is_paused: bool,
+    show_controls: bool,
+
+    // Player 1 state
+    player1_input: PlayerInput,
+    player1_state: PlayerInputState,
+    player1_rocket_id: Option<EntityId>,
+
+    // Player 2 state
+    player2_input: PlayerInput,
+    player2_state: PlayerInputState,
+    player2_rocket_id: Option<EntityId>,
+
+    // Camera management
+    camera_mode: CameraMode,
+    camera_focus_duration: f32,  // 10 seconds
+
+    // Save/load
+    current_save_name: Option<String>,
+    last_auto_save: f32,
+    auto_save_interval: f32,
+
+    // Starting positions
+    rocket_spawn_position: Vec2,
+    rocket_spawn_velocity: Vec2,
 }
 
-impl SplitScreenMode {
-    pub fn new(player_count: usize) -> Self {
-        let scr_width = screen_width();
-        let scr_height = screen_height();
+impl SplitScreenGame {
+    pub fn new(window_size: Vec2) -> Self {
+        let mut info_display = GameInfoDisplay::new();
+        info_display.toggle_controls_panel();
 
-        // Create viewports based on player count
-        let viewports = if player_count == 2 {
-            // Horizontal split (top/bottom)
-            vec![
-                Viewport::new(
-                    Rect::new(0.0, 0.0, scr_width, scr_height / 2.0),
-                    0,
-                ),
-                Viewport::new(
-                    Rect::new(0.0, scr_height / 2.0, scr_width, scr_height / 2.0),
-                    1,
-                ),
-            ]
-        } else if player_count == 3 {
-            // Top half split, bottom full
-            vec![
-                Viewport::new(
-                    Rect::new(0.0, 0.0, scr_width / 2.0, scr_height / 2.0),
-                    0,
-                ),
-                Viewport::new(
-                    Rect::new(scr_width / 2.0, 0.0, scr_width / 2.0, scr_height / 2.0),
-                    1,
-                ),
-                Viewport::new(
-                    Rect::new(0.0, scr_height / 2.0, scr_width, scr_height / 2.0),
-                    2,
-                ),
-            ]
-        } else if player_count == 4 {
-            // 2x2 grid
-            vec![
-                Viewport::new(
-                    Rect::new(0.0, 0.0, scr_width / 2.0, scr_height / 2.0),
-                    0,
-                ),
-                Viewport::new(
-                    Rect::new(scr_width / 2.0, 0.0, scr_width / 2.0, scr_height / 2.0),
-                    1,
-                ),
-                Viewport::new(
-                    Rect::new(0.0, scr_height / 2.0, scr_width / 2.0, scr_height / 2.0),
-                    2,
-                ),
-                Viewport::new(
-                    Rect::new(scr_width / 2.0, scr_height / 2.0, scr_width / 2.0, scr_height / 2.0),
-                    3,
-                ),
-            ]
-        } else {
-            // Default: single player (full screen)
-            vec![
-                Viewport::new(
-                    Rect::new(0.0, 0.0, scr_width, scr_height),
-                    0,
-                ),
-            ]
-        };
-
-        SplitScreenMode {
+        SplitScreenGame {
             world: World::new(),
-            viewports,
-            running: false,
-            player_count,
+            camera: Camera::new(window_size),
+            info_display,
+            vehicle_manager: VehicleManager::new(),
+            game_time: 0.0,
+            is_paused: false,
+            show_controls: false,
+
+            player1_input: PlayerInput::player1(),
+            player1_state: PlayerInputState::new(0),
+            player1_rocket_id: None,
+
+            player2_input: PlayerInput::player2(),
+            player2_state: PlayerInputState::new(1),
+            player2_rocket_id: None,
+
+            camera_mode: CameraMode::ShowBoth,
+            camera_focus_duration: 10.0,
+
+            current_save_name: None,
+            last_auto_save: 0.0,
+            auto_save_interval: 60.0,
+            rocket_spawn_position: Vec2::ZERO,
+            rocket_spawn_velocity: Vec2::ZERO,
         }
     }
 
-    /// Initialize split screen game
-    pub fn init(&mut self) {
-        self.running = true;
+    /// Initialize a new game with two players
+    pub fn initialize_new_game(&mut self) {
+        self.world.clear_all();
+        self.game_time = 0.0;
 
-        // Spawn rockets for each player at different locations
-        let spawn_positions = [
-            Vec2::new(100.0, 100.0),
-            Vec2::new(-100.0, -100.0),
-            Vec2::new(100.0, -100.0),
-            Vec2::new(-100.0, 100.0),
-        ];
+        // Create main planet (Earth)
+        let main_planet = Planet::new(
+            Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y),
+            GameConstants::MAIN_PLANET_RADIUS,
+            GameConstants::MAIN_PLANET_MASS,
+            BLUE,
+        );
+        self.world.add_planet(main_planet);
 
-        for (i, viewport) in self.viewports.iter_mut().enumerate() {
-            if i < spawn_positions.len() {
-                let rocket_id = self.world.spawn_rocket_at(
-                    spawn_positions[i],
-                    Vec2::ZERO,
-                    0.0,
+        // Create secondary planet (Moon)
+        let moon_x = *crate::game_constants::SECONDARY_PLANET_X;
+        let moon_y = *crate::game_constants::SECONDARY_PLANET_Y;
+        let moon_radius = GameConstants::SECONDARY_PLANET_RADIUS;
+        let moon_velocity = *crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY;
+
+        let mut secondary_planet = Planet::new(
+            Vec2::new(moon_x, moon_y),
+            moon_radius,
+            GameConstants::SECONDARY_PLANET_MASS,
+            Color::from_rgba(150, 150, 150, 255),
+        );
+        secondary_planet.set_velocity(Vec2::new(0.0, moon_velocity));
+        self.world.add_planet(secondary_planet);
+
+        // Spawn Player 1 rocket at default position
+        let rocket_spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+        self.rocket_spawn_position = Vec2::new(
+            GameConstants::MAIN_PLANET_X + rocket_spawn_distance,
+            GameConstants::MAIN_PLANET_Y,
+        );
+        self.rocket_spawn_velocity = Vec2::new(0.0, 0.0);
+
+        let rocket1 = Rocket::new(
+            self.rocket_spawn_position,
+            self.rocket_spawn_velocity,
+            Color::from_rgba(255, 100, 100, 255),  // Red for Player 1
+            GameConstants::ROCKET_BASE_MASS,
+        );
+        let rocket1_id = self.world.add_rocket(rocket1);
+        self.player1_rocket_id = Some(rocket1_id);
+        self.world.set_active_rocket(Some(rocket1_id));
+
+        // Spawn Player 2 rocket with 5 degree offset from Player 1
+        let offset_angle = 5.0_f32.to_radians();
+        let center = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+
+        // Rotate spawn position by 5 degrees around planet center
+        let rel_pos = self.rocket_spawn_position - center;
+        let rotated_x = rel_pos.x * offset_angle.cos() - rel_pos.y * offset_angle.sin();
+        let rotated_y = rel_pos.x * offset_angle.sin() + rel_pos.y * offset_angle.cos();
+        let p2_spawn_pos = center + Vec2::new(rotated_x, rotated_y);
+
+        // Rotate velocity vector by 5 degrees
+        let vel_x = self.rocket_spawn_velocity.x * offset_angle.cos() - self.rocket_spawn_velocity.y * offset_angle.sin();
+        let vel_y = self.rocket_spawn_velocity.x * offset_angle.sin() + self.rocket_spawn_velocity.y * offset_angle.cos();
+        let p2_spawn_vel = Vec2::new(vel_x, vel_y);
+
+        let rocket2 = Rocket::new(
+            p2_spawn_pos,
+            p2_spawn_vel,
+            Color::from_rgba(100, 100, 255, 255),  // Blue for Player 2
+            GameConstants::ROCKET_BASE_MASS,
+        );
+        let rocket2_id = self.world.add_rocket(rocket2);
+        self.player2_rocket_id = Some(rocket2_id);
+
+        // Set camera to show both players
+        self.update_camera_for_mode();
+
+        log::info!("Split-screen game initialized with two players");
+    }
+
+    /// Load a single player save and add Player 2
+    pub fn load_from_save_with_player2(&mut self, save_data: GameSaveData, save_name: String) {
+        self.load_from_snapshot(save_data);
+
+        // Player 1 gets the active rocket from the save
+        self.player1_rocket_id = self.world.active_rocket_id();
+
+        // Spawn Player 2 rocket with 5 degree offset
+        if let Some(p1_rocket_id) = self.player1_rocket_id {
+            if let Some(p1_rocket) = self.world.get_rocket(p1_rocket_id) {
+                let p1_pos = p1_rocket.position();
+                let p1_vel = p1_rocket.velocity();
+
+                // Find nearest planet to use as center
+                let center = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+
+                // 5 degree offset
+                let offset_angle = 5.0_f32.to_radians();
+                let rel_pos = p1_pos - center;
+                let rotated_x = rel_pos.x * offset_angle.cos() - rel_pos.y * offset_angle.sin();
+                let rotated_y = rel_pos.x * offset_angle.sin() + rel_pos.y * offset_angle.cos();
+                let p2_pos = center + Vec2::new(rotated_x, rotated_y);
+
+                let vel_x = p1_vel.x * offset_angle.cos() - p1_vel.y * offset_angle.sin();
+                let vel_y = p1_vel.x * offset_angle.sin() + p1_vel.y * offset_angle.cos();
+                let p2_vel = Vec2::new(vel_x, vel_y);
+
+                let rocket2 = Rocket::new(
+                    p2_pos,
+                    p2_vel,
+                    Color::from_rgba(100, 100, 255, 255),  // Blue for Player 2
+                    GameConstants::ROCKET_BASE_MASS,
                 );
-                viewport.set_rocket_id(Some(rocket_id));
+                let rocket2_id = self.world.add_rocket(rocket2);
+                self.player2_rocket_id = Some(rocket2_id);
 
-                // Initialize camera position
-                viewport.camera_mut().set_position(spawn_positions[i]);
+                log::info!("Loaded save '{}' with Player 2 added", save_name);
+            }
+        }
+
+        self.current_save_name = Some(save_name);
+        self.update_camera_for_mode();
+    }
+
+    fn load_from_snapshot(&mut self, snapshot: GameSaveData) {
+        self.world.clear_all_entities();
+        self.game_time = snapshot.game_time;
+
+        let planet_count = snapshot.planets.len();
+        let rocket_count = snapshot.rockets.len();
+        let satellite_count = snapshot.satellites.len();
+
+        for saved_planet in snapshot.planets {
+            let (id, planet) = saved_planet.to_planet();
+            self.world.add_planet_with_id(id, planet);
+        }
+
+        for saved_rocket in snapshot.rockets {
+            let (id, rocket) = saved_rocket.to_rocket();
+            self.world.add_rocket_with_id(id, rocket);
+        }
+
+        for saved_satellite in snapshot.satellites {
+            let (id, satellite) = saved_satellite.to_satellite();
+            self.world.add_satellite_with_id(id, satellite);
+        }
+
+        self.world.set_active_rocket(snapshot.active_rocket_id);
+
+        log::info!(
+            "Loaded snapshot: {} planets, {} rockets, {} satellites",
+            planet_count, rocket_count, satellite_count
+        );
+    }
+
+    /// Update camera based on current mode
+    fn update_camera_for_mode(&mut self) {
+        match self.camera_mode {
+            CameraMode::ShowBoth => {
+                // Calculate midpoint between both players
+                if let (Some(r1_id), Some(r2_id)) = (self.player1_rocket_id, self.player2_rocket_id) {
+                    if let (Some(r1), Some(r2)) = (self.world.get_rocket(r1_id), self.world.get_rocket(r2_id)) {
+                        let midpoint = (r1.position() + r2.position()) / 2.0;
+                        self.camera.set_center(midpoint);
+
+                        // Calculate distance and set zoom to fit both
+                        let distance = r1.position().distance(r2.position());
+                        let zoom = (distance / 300.0).max(1.0).min(10.0);
+                        self.camera.set_target_zoom(zoom);
+                    }
+                }
+            }
+            CameraMode::FocusPlayer1(_) => {
+                if let Some(r1_id) = self.player1_rocket_id {
+                    if let Some(r1) = self.world.get_rocket(r1_id) {
+                        self.camera.set_center(r1.position());
+                        self.camera.set_target_zoom(1.0);
+                    }
+                }
+            }
+            CameraMode::FocusPlayer2(_) => {
+                if let Some(r2_id) = self.player2_rocket_id {
+                    if let Some(r2) = self.world.get_rocket(r2_id) {
+                        self.camera.set_center(r2.position());
+                        self.camera.set_target_zoom(1.0);
+                    }
+                }
             }
         }
     }
 
-    /// Update split screen game
-    pub fn update(&mut self, delta_time: f32) {
-        if !self.running {
-            return;
+    /// Handle input for game controls
+    pub fn handle_input(&mut self) -> SplitScreenResult {
+        // Check for escape to return to menu or close controls popup
+        if is_key_pressed(KeyCode::Escape) {
+            if self.show_controls {
+                self.show_controls = false;
+                self.is_paused = false;
+            } else {
+                return SplitScreenResult::ReturnToMenu;
+            }
+        }
+
+        // Toggle controls menu with Enter key
+        if is_key_pressed(KeyCode::Enter) {
+            self.show_controls = !self.show_controls;
+            self.is_paused = self.show_controls;
+        }
+
+        if self.is_paused {
+            return SplitScreenResult::Continue;
+        }
+
+        // Handle camera focus keys
+        if self.player1_input.just_focused_camera() {
+            self.camera_mode = CameraMode::FocusPlayer1((self.camera_focus_duration * 10.0) as u32);
+            log::info!("Camera focused on Player 1");
+        }
+        if self.player2_input.just_focused_camera() {
+            self.camera_mode = CameraMode::FocusPlayer2((self.camera_focus_duration * 10.0) as u32);
+            log::info!("Camera focused on Player 2");
+        }
+
+        // Player 1 controls
+        let p1_input = self.player1_input.clone();
+        self.handle_player_input(p1_input, 0, self.player1_rocket_id);
+
+        // Player 2 controls
+        let p2_input = self.player2_input.clone();
+        self.handle_player_input(p2_input, 1, self.player2_rocket_id);
+
+        SplitScreenResult::Continue
+    }
+
+    fn handle_player_input(&mut self, input: PlayerInput, player_index: usize, rocket_id: Option<EntityId>) {
+        // Get the appropriate state
+        let state = if player_index == 0 {
+            &mut self.player1_state
+        } else {
+            &mut self.player2_state
+        };
+        // Thrust level adjustment
+        if input.just_decreased_thrust() {
+            state.adjust_thrust(-0.05);
+            log::info!("Player {} thrust: {}%", input.player_id, (state.thrust_level() * 100.0) as i32);
+        }
+        if input.just_increased_thrust() {
+            state.adjust_thrust(0.05);
+            log::info!("Player {} thrust: {}%", input.player_id, (state.thrust_level() * 100.0) as i32);
+        }
+
+        // Apply controls to rocket
+        if let Some(rid) = rocket_id {
+            // Rotation
+            let rotation_input = input.get_rotation_input();
+            if rotation_input != 0.0 {
+                let rotation_degrees = rotation_input * 3.0; // degrees per frame
+                let rotation_radians = rotation_degrees.to_radians();
+                if let Some(rocket) = self.world.get_rocket_mut(rid) {
+                    rocket.rotate(rotation_radians);
+                }
+            }
+
+            // Thrust
+            let thrust_level = if input.is_thrusting() {
+                state.thrust_level()
+            } else {
+                0.0
+            };
+
+            if let Some(rocket) = self.world.get_rocket_mut(rid) {
+                rocket.set_thrust_level(thrust_level);
+            }
+
+            // Convert to satellite
+            if input.just_converted_to_satellite() {
+                if let Some(new_satellite_id) = self.world.convert_rocket_to_satellite(rid) {
+                    log::info!("Player {} converted rocket to satellite", input.player_id);
+
+                    // Spawn new rocket for this player
+                    let new_rocket = Rocket::new(
+                        self.rocket_spawn_position,
+                        self.rocket_spawn_velocity,
+                        if input.player_id == 0 {
+                            Color::from_rgba(255, 100, 100, 255)
+                        } else {
+                            Color::from_rgba(100, 100, 255, 255)
+                        },
+                        GameConstants::ROCKET_BASE_MASS,
+                    );
+                    let new_rocket_id = self.world.add_rocket(new_rocket);
+
+                    // Update player's rocket ID
+                    if input.player_id == 0 {
+                        self.player1_rocket_id = Some(new_rocket_id);
+                    } else {
+                        self.player2_rocket_id = Some(new_rocket_id);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Update game state
+    pub fn update(&mut self, delta_time: f32) -> SplitScreenResult {
+        if self.is_paused {
+            return SplitScreenResult::Continue;
+        }
+
+        // Update camera focus timer
+        match self.camera_mode {
+            CameraMode::FocusPlayer1(remaining) | CameraMode::FocusPlayer2(remaining) => {
+                if remaining == 0 {
+                    self.camera_mode = CameraMode::ShowBoth;
+                    log::info!("Camera focus expired, showing both players");
+                } else {
+                    // Decrement timer (in deciseconds)
+                    let new_remaining = remaining.saturating_sub((delta_time * 10.0) as u32);
+                    self.camera_mode = match self.camera_mode {
+                        CameraMode::FocusPlayer1(_) => CameraMode::FocusPlayer1(new_remaining),
+                        CameraMode::FocusPlayer2(_) => CameraMode::FocusPlayer2(new_remaining),
+                        _ => CameraMode::ShowBoth,
+                    };
+                }
+            }
+            _ => {}
         }
 
         // Update world physics
         self.world.update(delta_time);
 
-        // Update each viewport
-        for viewport in &mut self.viewports {
-            viewport.update_camera(&self.world, delta_time);
-        }
+        // Update game time
+        self.game_time += delta_time;
+
+        // Update camera position based on mode
+        self.update_camera_for_mode();
+        self.camera.update(delta_time);
+
+        SplitScreenResult::Continue
     }
 
-    /// Handle input for all players
-    pub fn handle_input(&mut self) {
-        for viewport in &mut self.viewports {
-            let mapping = viewport.input_mapping();
+    /// Render the game
+    pub fn render(&mut self) {
+        // Set camera
+        set_camera(self.camera.camera());
 
-            if let Some(rocket_id) = viewport.rocket_id() {
-                // Apply thrust
-                if mapping.is_thrust_pressed() {
-                    self.world.set_rocket_thrust(rocket_id, true);
-                } else {
-                    self.world.set_rocket_thrust(rocket_id, false);
-                }
+        // Draw world entities
+        self.world.render();
 
-                // Apply rotation
-                if mapping.is_rotate_left_pressed() {
-                    self.world.rotate_rocket(rocket_id, 3.0);
-                } else if mapping.is_rotate_right_pressed() {
-                    self.world.rotate_rocket(rocket_id, -3.0);
-                }
-
-                // Handle launch (separate rocket into stages)
-                if mapping.is_launch_pressed() {
-                    // TODO: Implement stage separation
-                }
-
-                // Handle convert to satellite
-                if mapping.is_convert_pressed() {
-                    self.world.convert_rocket_to_satellite(rocket_id);
-                    viewport.set_rocket_id(None); // Rocket is now a satellite
-                }
+        // Draw trajectories for both players
+        if let Some(r1_id) = self.player1_rocket_id {
+            if let Some(r1) = self.world.get_rocket(r1_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                self.vehicle_manager.draw_visualizations(r1, &all_planets, self.camera.zoom_level(), self.camera.camera());
             }
         }
 
-        // Check for escape to return to menu
-        if is_key_pressed(KeyCode::Escape) {
-            self.running = false;
-        }
-    }
-
-    /// Render split screen
-    pub fn render(&self) {
-        clear_background(BLACK);
-
-        for (i, viewport) in self.viewports.iter().enumerate() {
-            // Set scissor rectangle for this viewport
-            gl_use_default_material();
-
-            // Render game world for this viewport
-            self.render_viewport(viewport);
-
-            // Draw viewport borders
-            if i < self.viewports.len() - 1 {
-                // Draw separator lines
-                if self.player_count == 2 {
-                    // Horizontal line
-                    let y = viewport.rect.y + viewport.rect.h;
-                    draw_line(
-                        0.0,
-                        y,
-                        screen_width(),
-                        y,
-                        3.0,
-                        WHITE,
-                    );
-                } else if self.player_count >= 3 {
-                    // Grid lines
-                    let vp_rect = viewport.rect;
-
-                    // Vertical line
-                    if vp_rect.x == 0.0 && vp_rect.w < screen_width() {
-                        draw_line(
-                            vp_rect.x + vp_rect.w,
-                            vp_rect.y,
-                            vp_rect.x + vp_rect.w,
-                            vp_rect.y + vp_rect.h,
-                            3.0,
-                            WHITE,
-                        );
-                    }
-
-                    // Horizontal line
-                    if vp_rect.y == 0.0 && vp_rect.h < screen_height() {
-                        draw_line(
-                            vp_rect.x,
-                            vp_rect.y + vp_rect.h,
-                            vp_rect.x + vp_rect.w,
-                            vp_rect.y + vp_rect.h,
-                            3.0,
-                            WHITE,
-                        );
-                    }
-                }
-            }
-
-            // Draw player indicator
-            let label = format!("P{}", viewport.player_index + 1);
-            let color = match viewport.player_index {
-                0 => YELLOW,
-                1 => GREEN,
-                2 => BLUE,
-                _ => RED,
-            };
-
-            draw_text(
-                &label,
-                viewport.rect.x + 10.0,
-                viewport.rect.y + 25.0,
-                20.0,
-                color,
-            );
-
-            // Draw rocket info if alive
-            if let Some(rocket_id) = viewport.rocket_id() {
-                if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                    let fuel_text = format!("Fuel: {:.0}", rocket.current_fuel());
-                    draw_text(
-                        &fuel_text,
-                        viewport.rect.x + 10.0,
-                        viewport.rect.y + 45.0,
-                        16.0,
-                        WHITE,
-                    );
-                }
+        if let Some(r2_id) = self.player2_rocket_id {
+            if let Some(r2) = self.world.get_rocket(r2_id) {
+                let all_planets: Vec<&Planet> = self.world.planets().collect();
+                self.vehicle_manager.draw_visualizations(r2, &all_planets, self.camera.zoom_level(), self.camera.camera());
             }
         }
 
-        // Draw controls reminder at bottom
-        let controls = "P1: WASD+Space  |  P2: Arrows+Enter  |  ESC: Menu";
-        let text_dims = measure_text(controls, None, 16, 1.0);
-        draw_text(
-            controls,
-            screen_width() / 2.0 - text_dims.width / 2.0,
-            screen_height() - 10.0,
-            16.0,
-            GRAY,
-        );
-    }
+        // Reset to default camera for UI
+        set_default_camera();
 
-    /// Render a single viewport
-    fn render_viewport(&self, viewport: &Viewport) {
-        let vp_rect = viewport.rect;
-        let camera = viewport.camera();
+        // Draw UI
+        self.draw_ui();
 
-        // Calculate world bounds visible in this viewport
-        let world_min = camera.screen_to_world(Vec2::new(vp_rect.x, vp_rect.y));
-        let world_max = camera.screen_to_world(Vec2::new(vp_rect.x + vp_rect.w, vp_rect.y + vp_rect.h));
-
-        // Render planets
-        for planet in self.world.planets() {
-            let screen_pos = camera.world_to_screen(planet.position());
-
-            // Check if within viewport
-            if screen_pos.x >= vp_rect.x && screen_pos.x <= vp_rect.x + vp_rect.w &&
-               screen_pos.y >= vp_rect.y && screen_pos.y <= vp_rect.y + vp_rect.h {
-                draw_circle(
-                    screen_pos.x,
-                    screen_pos.y,
-                    planet.radius() * camera.zoom(),
-                    BLUE,
-                );
-            }
-        }
-
-        // Render rockets
-        for rocket in self.world.rockets() {
-            let screen_pos = camera.world_to_screen(rocket.position());
-
-            // Check if within viewport
-            if screen_pos.x >= vp_rect.x && screen_pos.x <= vp_rect.x + vp_rect.w &&
-               screen_pos.y >= vp_rect.y && screen_pos.y <= vp_rect.y + vp_rect.h {
-                // Draw rocket triangle
-                let size = 10.0;
-                let rotation = rocket.rotation();
-
-                // Calculate triangle points
-                let p1 = Vec2::new(
-                    screen_pos.x + size * rotation.cos(),
-                    screen_pos.y + size * rotation.sin(),
-                );
-                let p2 = Vec2::new(
-                    screen_pos.x + size * (rotation + 2.4).cos(),
-                    screen_pos.y + size * (rotation + 2.4).sin(),
-                );
-                let p3 = Vec2::new(
-                    screen_pos.x + size * (rotation - 2.4).cos(),
-                    screen_pos.y + size * (rotation - 2.4).sin(),
-                );
-
-                draw_triangle(p1, p2, p3, RED);
-
-                // Draw thrust flame if active
-                if rocket.thrust_level() > 0.0 {
-                    let flame_len = 15.0;
-                    let flame_start = Vec2::new(
-                        screen_pos.x - (size * 0.5) * rotation.cos(),
-                        screen_pos.y - (size * 0.5) * rotation.sin(),
-                    );
-                    let flame_end = Vec2::new(
-                        flame_start.x - flame_len * rotation.cos(),
-                        flame_start.y - flame_len * rotation.sin(),
-                    );
-
-                    draw_line(
-                        flame_start.x,
-                        flame_start.y,
-                        flame_end.x,
-                        flame_end.y,
-                        4.0,
-                        ORANGE,
-                    );
-                }
-            }
-        }
-
-        // Render satellites
-        for satellite in self.world.satellites() {
-            let screen_pos = camera.world_to_screen(satellite.position());
-
-            // Check if within viewport
-            if screen_pos.x >= vp_rect.x && screen_pos.x <= vp_rect.x + vp_rect.w &&
-               screen_pos.y >= vp_rect.y && screen_pos.y <= vp_rect.y + vp_rect.h {
-                draw_circle(
-                    screen_pos.x,
-                    screen_pos.y,
-                    5.0,
-                    GREEN,
-                );
-
-                // Draw solar panels
-                let panel_size = 8.0;
-                draw_rectangle(
-                    screen_pos.x - panel_size - 5.0,
-                    screen_pos.y - 2.0,
-                    panel_size,
-                    4.0,
-                    YELLOW,
-                );
-                draw_rectangle(
-                    screen_pos.x + 5.0,
-                    screen_pos.y - 2.0,
-                    panel_size,
-                    4.0,
-                    YELLOW,
-                );
-            }
+        // Draw controls popup if showing
+        if self.show_controls {
+            self.draw_controls_popup();
         }
     }
 
-    pub fn is_running(&self) -> bool {
-        self.running
+    fn draw_ui(&mut self) {
+        // Update and draw info displays for both players
+        // For now, just show basic info
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        // Player 1 info (top-left)
+        draw_text(&format!("Player 1 (Red)"), 10.0, 30.0, 20.0, RED);
+        draw_text(&format!("Thrust: {}%", (self.player1_state.thrust_level() * 100.0) as i32), 10.0, 50.0, 20.0, WHITE);
+
+        // Player 2 info (top-right)
+        draw_text(&format!("Player 2 (Blue)"), screen_w - 200.0, 30.0, 20.0, BLUE);
+        draw_text(&format!("Thrust: {}%", (self.player2_state.thrust_level() * 100.0) as i32), screen_w - 200.0, 50.0, 20.0, WHITE);
+
+        // Camera mode indicator (center-top)
+        let mode_text = match self.camera_mode {
+            CameraMode::ShowBoth => "Camera: Both Players",
+            CameraMode::FocusPlayer1(t) => &format!("Camera: Player 1 ({}s)", t / 10),
+            CameraMode::FocusPlayer2(t) => &format!("Camera: Player 2 ({}s)", t / 10),
+        };
+        let text_w = measure_text(mode_text, None, 20, 1.0).width;
+        draw_text(mode_text, screen_w / 2.0 - text_w / 2.0, 30.0, 20.0, YELLOW);
+
+        // Controls button (top-right corner)
+        draw_rectangle(screen_w - 50.0, 10.0, 40.0, 30.0, Color::from_rgba(100, 100, 100, 255));
+        draw_text("...", screen_w - 40.0, 32.0, 20.0, WHITE);
     }
 
-    pub fn stop(&mut self) {
-        self.running = false;
+    fn draw_controls_popup(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        // Draw backdrop
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::from_rgba(0, 0, 0, 180));
+
+        // Draw popup window
+        let popup_w = 900.0;
+        let popup_h = 700.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::from_rgba(40, 40, 60, 255));
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 2.0, WHITE);
+
+        // Title
+        let title = "SPLIT-SCREEN CONTROLS";
+        let title_w = measure_text(title, None, 32, 1.0).width;
+        draw_text(title, popup_x + popup_w / 2.0 - title_w / 2.0, popup_y + 40.0, 32.0, WHITE);
+
+        // Three columns: Player 1, Action, Player 2
+        let col1_x = popup_x + 50.0;
+        let col2_x = popup_x + 350.0;
+        let col3_x = popup_x + 650.0;
+        let start_y = popup_y + 100.0;
+        let line_height = 30.0;
+
+        // Column headers
+        draw_text("Player 1", col1_x, start_y, 24.0, RED);
+        draw_text("Action", col2_x, start_y, 24.0, YELLOW);
+        draw_text("Player 2", col3_x, start_y, 24.0, BLUE);
+
+        let mut y = start_y + 40.0;
+
+        let controls = [
+            ("A", "Rotate Left", "LEFT"),
+            ("D", "Rotate Right", "RIGHT"),
+            ("W", "Thrust", "UP"),
+            ("Z", "Decrease Thrust", "COMMA"),
+            ("X", "Increase Thrust", "PERIOD"),
+            ("C", "Convert to Satellite", "]"),
+            ("Q", "Zoom Out", "/"),
+            ("E", "Zoom In", "'"),
+            ("R", "Focus Camera (10s)", ";"),
+        ];
+
+        for (p1_key, action, p2_key) in controls.iter() {
+            draw_text(p1_key, col1_x, y, 20.0, WHITE);
+            draw_text(action, col2_x, y, 20.0, WHITE);
+            draw_text(p2_key, col3_x, y, 20.0, WHITE);
+            y += line_height;
+        }
+
+        y += 20.0;
+        draw_text("ENTER - Toggle Controls Menu", col2_x, y, 20.0, GRAY);
+        y += line_height;
+        draw_text("ESC - Return to Menu", col2_x, y, 20.0, GRAY);
     }
-
-    pub fn world(&self) -> &World {
-        &self.world
-    }
-
-    pub fn viewports(&self) -> &[Viewport] {
-        &self.viewports
-    }
-}
-
-impl Default for SplitScreenMode {
-    fn default() -> Self {
-        Self::new(2)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_player_input_mapping() {
-        let p1 = PlayerInputMapping::player1();
-        assert_eq!(p1.thrust, KeyCode::W);
-        assert_eq!(p1.rotate_left, KeyCode::A);
-
-        let p2 = PlayerInputMapping::player2();
-        assert_eq!(p2.thrust, KeyCode::Up);
-        assert_eq!(p2.rotate_left, KeyCode::Left);
-    }
-
-    #[test]
-    fn test_viewport_creation() {
-        let viewport = Viewport::new(Rect::new(0.0, 0.0, 400.0, 300.0), 0);
-        assert_eq!(viewport.player_index(), 0);
-        assert_eq!(viewport.rocket_id(), None);
-    }
-
-    // Note: Tests for SplitScreenMode::new() are skipped because they require
-    // a Macroquad window context (screen_width/screen_height calls)
 }

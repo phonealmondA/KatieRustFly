@@ -145,6 +145,13 @@ impl Rocket {
         self.update_mass_from_fuel();
     }
 
+    /// Set fuel without preserving momentum (used when loading saves)
+    pub fn set_fuel_direct(&mut self, fuel: f32) {
+        self.current_fuel = fuel.clamp(0.0, self.max_fuel);
+        // Update mass without momentum preservation
+        self.mass = self.base_mass + self.current_fuel;
+    }
+
     pub fn add_fuel(&mut self, fuel: f32) {
         self.set_fuel(self.current_fuel + fuel);
     }
@@ -204,6 +211,10 @@ impl Rocket {
         self.rotation += amount;
         // Normalize angle to [0, 2*PI]
         self.rotation = self.rotation.rem_euclid(2.0 * std::f32::consts::PI);
+    }
+
+    pub fn set_rotation(&mut self, rotation: f32) {
+        self.rotation = rotation.rem_euclid(2.0 * std::f32::consts::PI);
     }
 
     pub fn rotation(&self) -> f32 {

@@ -7,6 +7,8 @@ pub enum GameState {
     SavesMenu,
     MultiplayerMenu,
     OnlineMultiplayerMenu,
+    OnlineHostMenu,
+    OnlineJoinMenu,
     Playing,
     Paused,
     MultiplayerHost,
