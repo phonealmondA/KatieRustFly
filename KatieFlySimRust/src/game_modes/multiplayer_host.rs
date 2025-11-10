@@ -6,9 +6,9 @@ use std::net::{SocketAddr, UdpSocket};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::entities::Rocket;
+use crate::entities::{Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
-use crate::save_system::GameSaveData;
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
 
@@ -89,42 +89,53 @@ impl MultiplayerHost {
     pub fn initialize_new_game(&mut self) {
         log::info!("Initializing new multiplayer host game");
 
+        self.world.clear_all_entities();
+
         // Create main planet (Earth)
-        self.world.spawn_planet_at_origin(
-            GameConstants::MAIN_PLANET_MASS,
+        let main_planet = Planet::new(
+            Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y),
             GameConstants::MAIN_PLANET_RADIUS,
+            GameConstants::MAIN_PLANET_MASS,
             BLUE,
         );
+        self.world.add_planet(main_planet);
 
         // Create moon
         let moon_distance = GameConstants::MAIN_PLANET_RADIUS * 4.0;
+        let moon_x = GameConstants::MAIN_PLANET_X + moon_distance;
+        let moon_y = GameConstants::MAIN_PLANET_Y;
         let moon_velocity = (GameConstants::G * GameConstants::MAIN_PLANET_MASS / moon_distance).sqrt();
-        self.world.spawn_planet(
-            Vec2::new(moon_distance, 0.0),
-            Vec2::new(0.0, moon_velocity),
-            GameConstants::MAIN_PLANET_MASS * 0.05,
+
+        let mut moon = Planet::new(
+            Vec2::new(moon_x, moon_y),
             GameConstants::MAIN_PLANET_RADIUS * 0.5,
+            GameConstants::MAIN_PLANET_MASS * 0.05,
             GRAY,
         );
+        moon.set_velocity(Vec2::new(0.0, moon_velocity));
+        self.world.add_planet(moon);
 
         // Spawn host's rocket (player 0)
         let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-        let spawn_position = Vec2::new(spawn_distance, 0.0);
+        let spawn_position = Vec2::new(
+            GameConstants::MAIN_PLANET_X + spawn_distance,
+            GameConstants::MAIN_PLANET_Y,
+        );
         let spawn_velocity = Vec2::new(0.0, 0.0);
 
         let rocket = Rocket::new(
             spawn_position,
             spawn_velocity,
             Color::from_rgba(255, 100, 100, 255), // Red for host
-            50.0,
+            GameConstants::ROCKET_BASE_MASS,
         );
 
-        let rocket_id = self.world.spawn_rocket(rocket);
+        let rocket_id = self.world.add_rocket(rocket);
         self.active_rocket_id = Some(rocket_id);
+        self.world.set_active_rocket(Some(rocket_id));
 
         // Initialize camera
         self.camera.set_center(spawn_position);
-        self.camera.set_target_zoom(1.0);
 
         log::info!("Multiplayer host game initialized - waiting for clients");
     }
@@ -134,57 +145,32 @@ impl MultiplayerHost {
         log::info!("Loading multiplayer host game from save: {}", save_name);
 
         // Clear existing world
-        self.world = World::new();
+        self.world.clear_all_entities();
 
-        // Load planets
+        // Load planets with their original IDs
         for saved_planet in save_data.planets {
-            self.world.spawn_planet(
-                saved_planet.position,
-                saved_planet.velocity,
-                saved_planet.mass,
-                saved_planet.radius,
-                Color::from_rgba(
-                    saved_planet.color[0],
-                    saved_planet.color[1],
-                    saved_planet.color[2],
-                    saved_planet.color[3],
-                ),
-            );
+            let (id, planet) = saved_planet.to_planet();
+            self.world.add_planet_with_id(id, planet);
         }
 
-        // Load rockets
+        // Load rockets with their original IDs
         for saved_rocket in save_data.rockets {
-            let rocket = Rocket::new(
-                saved_rocket.position,
-                saved_rocket.velocity,
-                Color::from_rgba(
-                    saved_rocket.color[0],
-                    saved_rocket.color[1],
-                    saved_rocket.color[2],
-                    saved_rocket.color[3],
-                ),
-                saved_rocket.mass,
-            );
-            let rocket_id = self.world.spawn_rocket(rocket);
-
-            // Set the active rocket for host (should be player_id 0)
-            if saved_rocket.player_id == 0 {
-                self.active_rocket_id = Some(rocket_id);
-            }
+            let (id, rocket) = saved_rocket.to_rocket();
+            self.world.add_rocket_with_id(id, rocket);
         }
 
-        // Load satellites
+        // Load satellites with their original IDs
         for saved_satellite in save_data.satellites {
-            self.world.spawn_satellite(
-                saved_satellite.position,
-                saved_satellite.velocity,
-                saved_satellite.mass,
-            );
+            let (id, satellite) = saved_satellite.to_satellite();
+            self.world.add_satellite_with_id(id, satellite);
         }
+
+        // Restore active rocket
+        self.active_rocket_id = save_data.active_rocket_id;
+        self.world.set_active_rocket(save_data.active_rocket_id);
 
         // Restore camera state
-        self.camera.set_center(save_data.camera_center);
-        self.camera.set_target_zoom(save_data.camera_zoom);
+        self.camera.set_center(save_data.camera.center.into());
 
         self.current_save_name = Some(save_name);
         log::info!("Multiplayer host save loaded successfully");
@@ -240,10 +226,10 @@ impl MultiplayerHost {
 
             // Thrust adjustment
             if is_key_pressed(self.player_input.decrease_thrust) {
-                self.player_state.decrease_thrust();
+                self.player_state.adjust_thrust(-0.05);
             }
             if is_key_pressed(self.player_input.increase_thrust) {
-                self.player_state.increase_thrust();
+                self.player_state.adjust_thrust(0.05);
             }
 
             // Apply thrust
@@ -255,24 +241,25 @@ impl MultiplayerHost {
 
             // Convert to satellite
             if is_key_pressed(self.player_input.convert_to_satellite) {
-                if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                    let position = rocket.position();
-                    let velocity = rocket.velocity();
-                    let mass = rocket.mass();
-
-                    self.world.spawn_satellite(position, velocity, mass);
-                    self.world.despawn_rocket(rocket_id);
+                if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
+                    log::info!("Host converted rocket to satellite");
 
                     // Spawn new rocket for host
                     let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+                    let spawn_position = Vec2::new(
+                        GameConstants::MAIN_PLANET_X + spawn_distance,
+                        GameConstants::MAIN_PLANET_Y,
+                    );
                     let new_rocket = Rocket::new(
-                        Vec2::new(spawn_distance, 0.0),
+                        spawn_position,
                         Vec2::new(0.0, 0.0),
                         Color::from_rgba(255, 100, 100, 255),
-                        50.0,
+                        GameConstants::ROCKET_BASE_MASS,
                     );
-                    self.active_rocket_id = Some(self.world.spawn_rocket(new_rocket));
-                    log::info!("Host converted rocket to satellite and respawned");
+                    let new_rocket_id = self.world.add_rocket(new_rocket);
+                    self.active_rocket_id = Some(new_rocket_id);
+                    self.world.set_active_rocket(Some(new_rocket_id));
+                    log::info!("Host respawned new rocket");
                 }
             }
 
@@ -319,13 +306,6 @@ impl MultiplayerHost {
             self.broadcast_snapshot();
             self.snapshot_timer = 0.0;
         }
-
-        // Update UI
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                self.game_info.update_from_rocket(rocket, &self.world);
-            }
-        }
     }
 
     /// Receive and process packets from clients
@@ -370,10 +350,42 @@ impl MultiplayerHost {
         }
     }
 
+    /// Create GameSaveData snapshot from current world state
+    fn create_snapshot(&self) -> GameSaveData {
+        let mut save_data = GameSaveData::new();
+
+        // Save all planets with their IDs
+        save_data.planets = self.world.planets_with_ids()
+            .map(|(id, planet)| SavedPlanet::from_planet(id, planet))
+            .collect();
+
+        // Save all rockets with their IDs
+        save_data.rockets = self.world.rockets_with_ids()
+            .map(|(id, rocket)| SavedRocket::from_rocket(id, rocket))
+            .collect();
+
+        // Save all satellites with their IDs
+        save_data.satellites = self.world.satellites_with_ids()
+            .map(|(id, satellite)| SavedSatellite::from_satellite(id, satellite))
+            .collect();
+
+        // Save player state (host is player 0)
+        save_data.player_id = Some(0);
+        save_data.active_rocket_id = self.active_rocket_id;
+
+        // Save camera state
+        save_data.camera = SavedCamera {
+            center: self.camera.camera().target.into(),
+            zoom: self.camera.zoom_level(),
+        };
+
+        save_data
+    }
+
     /// Broadcast current game state snapshot to all connected clients
     fn broadcast_snapshot(&self) {
         // Create snapshot from current world state
-        let snapshot = GameSaveData::from_world(&self.world, &self.camera, self.active_rocket_id);
+        let snapshot = self.create_snapshot();
 
         // Serialize to bytes
         match snapshot.to_bytes() {
@@ -406,7 +418,7 @@ impl MultiplayerHost {
             format!("multiplayer_host_{}", get_time() as u64)
         };
 
-        let save_data = GameSaveData::from_world(&self.world, &self.camera, self.active_rocket_id);
+        let save_data = self.create_snapshot();
 
         match save_data.save_to_file(&save_name) {
             Ok(_) => {
@@ -427,24 +439,8 @@ impl MultiplayerHost {
         // Render world
         self.world.render();
 
-        // Render vehicle trajectories and info
-        if let Some(rocket_id) = self.active_rocket_id {
-            self.vehicle_manager.render_trajectory(
-                &self.world,
-                rocket_id,
-                &self.camera,
-            );
-        }
-
         // Reset to default camera for UI
         set_default_camera();
-
-        // Render UI
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                self.game_info.draw(rocket, &self.player_state);
-            }
-        }
 
         // Show host status
         let clients = self.clients.lock().unwrap();

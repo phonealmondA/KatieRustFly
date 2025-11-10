@@ -5,9 +5,9 @@ use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
-use crate::entities::Rocket;
+use crate::entities::{Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
-use crate::save_system::GameSaveData;
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
 
@@ -136,10 +136,10 @@ impl MultiplayerClient {
 
             // Thrust adjustment
             if is_key_pressed(self.player_input.decrease_thrust) {
-                self.player_state.decrease_thrust();
+                self.player_state.adjust_thrust(-0.05);
             }
             if is_key_pressed(self.player_input.increase_thrust) {
-                self.player_state.increase_thrust();
+                self.player_state.adjust_thrust(0.05);
             }
 
             // Apply thrust
@@ -151,24 +151,25 @@ impl MultiplayerClient {
 
             // Convert to satellite
             if is_key_pressed(self.player_input.convert_to_satellite) {
-                if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                    let position = rocket.position();
-                    let velocity = rocket.velocity();
-                    let mass = rocket.mass();
-
-                    self.world.spawn_satellite(position, velocity, mass);
-                    self.world.despawn_rocket(rocket_id);
+                if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
+                    log::info!("Client converted rocket to satellite");
 
                     // Spawn new rocket for client
                     let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+                    let spawn_position = Vec2::new(
+                        GameConstants::MAIN_PLANET_X + spawn_distance,
+                        GameConstants::MAIN_PLANET_Y,
+                    );
                     let new_rocket = Rocket::new(
-                        Vec2::new(spawn_distance, 0.0),
+                        spawn_position,
                         Vec2::new(0.0, 0.0),
                         Color::from_rgba(100, 100, 255, 255), // Blue for client
-                        50.0,
+                        GameConstants::ROCKET_BASE_MASS,
                     );
-                    self.active_rocket_id = Some(self.world.spawn_rocket(new_rocket));
-                    log::info!("Client converted rocket to satellite and respawned");
+                    let new_rocket_id = self.world.add_rocket(new_rocket);
+                    self.active_rocket_id = Some(new_rocket_id);
+                    self.world.set_active_rocket(Some(new_rocket_id));
+                    log::info!("Client respawned new rocket");
                 }
             }
 
@@ -222,13 +223,6 @@ impl MultiplayerClient {
             }
         }
         self.camera.update(delta_time);
-
-        // Update UI
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                self.game_info.update_from_rocket(rocket, &self.world);
-            }
-        }
     }
 
     /// Send keepalive packet to host
@@ -276,53 +270,29 @@ impl MultiplayerClient {
         log::debug!("Applying snapshot from host");
 
         // Clear existing world
-        self.world = World::new();
+        self.world.clear_all_entities();
 
-        // Load planets
+        // Load planets with their original IDs
         for saved_planet in snapshot.planets {
-            self.world.spawn_planet(
-                saved_planet.position,
-                saved_planet.velocity,
-                saved_planet.mass,
-                saved_planet.radius,
-                Color::from_rgba(
-                    saved_planet.color[0],
-                    saved_planet.color[1],
-                    saved_planet.color[2],
-                    saved_planet.color[3],
-                ),
-            );
+            let (id, planet) = saved_planet.to_planet();
+            self.world.add_planet_with_id(id, planet);
         }
 
-        // Load rockets
+        // Load rockets with their original IDs
         for saved_rocket in snapshot.rockets {
-            let rocket = Rocket::new(
-                saved_rocket.position,
-                saved_rocket.velocity,
-                Color::from_rgba(
-                    saved_rocket.color[0],
-                    saved_rocket.color[1],
-                    saved_rocket.color[2],
-                    saved_rocket.color[3],
-                ),
-                saved_rocket.mass,
-            );
-            let rocket_id = self.world.spawn_rocket(rocket);
-
-            // Find our rocket (matching player_id)
-            if saved_rocket.player_id == self.player_id {
-                self.active_rocket_id = Some(rocket_id);
-            }
+            let (id, rocket) = saved_rocket.to_rocket();
+            self.world.add_rocket_with_id(id, rocket);
         }
 
-        // Load satellites
+        // Load satellites with their original IDs
         for saved_satellite in snapshot.satellites {
-            self.world.spawn_satellite(
-                saved_satellite.position,
-                saved_satellite.velocity,
-                saved_satellite.mass,
-            );
+            let (id, satellite) = saved_satellite.to_satellite();
+            self.world.add_satellite_with_id(id, satellite);
         }
+
+        // Update our active rocket from snapshot
+        self.active_rocket_id = snapshot.active_rocket_id;
+        self.world.set_active_rocket(snapshot.active_rocket_id);
 
         // Note: We keep our local camera instead of using snapshot camera
         // This gives the client freedom to look around independently
@@ -336,24 +306,8 @@ impl MultiplayerClient {
         // Render world
         self.world.render();
 
-        // Render vehicle trajectories
-        if let Some(rocket_id) = self.active_rocket_id {
-            self.vehicle_manager.render_trajectory(
-                &self.world,
-                rocket_id,
-                &self.camera,
-            );
-        }
-
         // Reset to default camera for UI
         set_default_camera();
-
-        // Render UI
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                self.game_info.draw(rocket, &self.player_state);
-            }
-        }
 
         // Show connection status
         let status_color = if self.connected { GREEN } else { RED };
