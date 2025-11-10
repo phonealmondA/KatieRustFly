@@ -432,7 +432,7 @@ impl SinglePlayerGame {
 
         // Draw vehicle visualizations (trajectory, gravity forces) using VehicleManager
         if let Some(rocket) = self.world.get_active_rocket() {
-            self.vehicle_manager.draw_visualizations(rocket, &all_planets, zoom_level);
+            self.vehicle_manager.draw_visualizations(rocket, &all_planets, zoom_level, self.camera.camera());
         }
 
         // Reset to default camera for HUD

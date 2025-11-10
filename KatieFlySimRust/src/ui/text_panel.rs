@@ -106,6 +106,10 @@ impl TextPanel {
         self.config.position = position;
     }
 
+    pub fn position(&self) -> Vec2 {
+        self.config.position
+    }
+
     pub fn set_size(&mut self, width: f32, height: f32) {
         self.config.width = width;
         self.config.height = height;
