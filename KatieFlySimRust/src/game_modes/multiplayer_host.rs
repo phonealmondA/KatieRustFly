@@ -100,20 +100,20 @@ impl MultiplayerHost {
         );
         self.world.add_planet(main_planet);
 
-        // Create moon
-        let moon_distance = GameConstants::MAIN_PLANET_RADIUS * 4.0;
-        let moon_x = GameConstants::MAIN_PLANET_X + moon_distance;
-        let moon_y = GameConstants::MAIN_PLANET_Y;
-        let moon_velocity = (GameConstants::G * GameConstants::MAIN_PLANET_MASS / moon_distance).sqrt();
+        // Create secondary planet (Moon) - match single player configuration
+        let moon_x = *crate::game_constants::SECONDARY_PLANET_X;
+        let moon_y = *crate::game_constants::SECONDARY_PLANET_Y;
+        let moon_radius = GameConstants::SECONDARY_PLANET_RADIUS;
+        let moon_velocity = *crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY;
 
-        let mut moon = Planet::new(
+        let mut secondary_planet = Planet::new(
             Vec2::new(moon_x, moon_y),
-            GameConstants::MAIN_PLANET_RADIUS * 0.5,
-            GameConstants::MAIN_PLANET_MASS * 0.05,
-            GRAY,
+            moon_radius,
+            GameConstants::SECONDARY_PLANET_MASS,
+            Color::from_rgba(150, 150, 150, 255),
         );
-        moon.set_velocity(Vec2::new(0.0, moon_velocity));
-        self.world.add_planet(moon);
+        secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
+        self.world.add_planet(secondary_planet);
 
         // Spawn host's rocket (player 0)
         let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;

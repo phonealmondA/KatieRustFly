@@ -123,7 +123,7 @@ impl SplitScreenGame {
             GameConstants::SECONDARY_PLANET_MASS,
             Color::from_rgba(150, 150, 150, 255),
         );
-        secondary_planet.set_velocity(Vec2::new(0.0, moon_velocity));
+        secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
         self.world.add_planet(secondary_planet);
 
         // Spawn Player 1 rocket at default position
@@ -327,6 +327,38 @@ impl SplitScreenGame {
         if is_key_pressed(KeyCode::Key9) {
             self.player1_info_display.hide_all_panels();
             self.player2_info_display.hide_all_panels();
+        }
+
+        // Handle scroll wheel zoom - switches to ShowBoth mode and applies zoom
+        let mouse_wheel = mouse_wheel().1;
+        if mouse_wheel != 0.0 {
+            self.camera_mode = CameraMode::ShowBoth;
+            self.camera.adjust_zoom(-mouse_wheel * 0.02);
+        }
+
+        // Handle keyboard zoom based on camera mode
+        match self.camera_mode {
+            CameraMode::FocusPlayer1(_) => {
+                // Player 1 focused: use Q+E zoom controls
+                if is_key_down(KeyCode::Q) {
+                    self.camera.adjust_zoom(-0.02); // Q = zoom in
+                }
+                if is_key_down(KeyCode::E) {
+                    self.camera.adjust_zoom(0.02); // E = zoom out
+                }
+            }
+            CameraMode::FocusPlayer2(_) => {
+                // Player 2 focused: use /+' zoom controls
+                if is_key_down(KeyCode::Slash) {
+                    self.camera.adjust_zoom(-0.02); // / = zoom in
+                }
+                if is_key_down(KeyCode::Apostrophe) {
+                    self.camera.adjust_zoom(0.02); // ' = zoom out
+                }
+            }
+            CameraMode::ShowBoth => {
+                // No keyboard zoom when showing both players
+            }
         }
 
         if self.is_paused {
