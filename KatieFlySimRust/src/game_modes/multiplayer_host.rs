@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
-use crate::entities::{Planet, Rocket, Satellite};
+use crate::entities::{GameObject, Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
 use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
@@ -605,6 +605,367 @@ impl MultiplayerHost {
         }
     }
 
+    fn draw_network_map(&mut self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let map_size = 700.0;
+        let map_x = screen_w / 2.0 - map_size / 2.0;
+        let map_y = screen_h / 2.0 - map_size / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.6));
+
+        // Map background (green-tinted)
+        draw_rectangle(map_x, map_y, map_size, map_size, Color::new(0.05, 0.15, 0.05, 0.95));
+        // Map border
+        draw_rectangle_lines(map_x, map_y, map_size, map_size, 3.0, Color::new(0.0, 1.0, 0.0, 0.8));
+
+        // Title
+        let title = "SATELLITE NETWORK MAP";
+        let title_size = 24.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            map_x + map_size / 2.0 - title_dims.width / 2.0,
+            map_y + 30.0,
+            title_size,
+            Color::new(0.0, 1.0, 0.0, 1.0),
+        );
+
+        // Calculate map scale - center on Earth
+        // Find Earth (the most massive planet)
+        let mut earth_pos = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+        let mut earth_mass = 0.0f32;
+        for planet in self.world.planets() {
+            if planet.mass() > earth_mass {
+                earth_mass = planet.mass();
+                earth_pos = planet.position();
+            }
+        }
+
+        // Map viewport (what area of the game world to show)
+        // Show from 0 to ~50000 units from center
+        let map_world_radius = 50000.0;
+        let map_center = Vec2::new(map_x + map_size / 2.0, map_y + map_size / 2.0);
+        let map_scale = (map_size * 0.45) / map_world_radius;
+
+        // Helper function to convert world position to map position
+        let world_to_map = |world_pos: Vec2| -> Vec2 {
+            let relative = world_pos - earth_pos;
+            let scaled = relative * map_scale;
+            // Flip Y coordinate to fix inverted display
+            Vec2::new(map_center.x + scaled.x, map_center.y - scaled.y)
+        };
+
+        // Draw range rings at 1500 unit intervals from Earth's surface
+        let earth_radius = 10000.0; // From constants
+        for i in 1..=40 {
+            let ring_distance = earth_radius + (i as f32 * 1500.0);
+            let ring_radius_on_map = ring_distance * map_scale;
+
+            if ring_radius_on_map < map_size / 2.0 {
+                draw_circle_lines(
+                    map_center.x,
+                    map_center.y,
+                    ring_radius_on_map,
+                    1.0,
+                    Color::new(0.0, 0.5, 0.0, 0.3),
+                );
+            }
+        }
+
+        // Find Moon position for Moon-centered rings
+        let mut moon_pos = None;
+        for planet in self.world.planets() {
+            if planet.mass() != earth_mass {
+                // This is the Moon (not Earth)
+                moon_pos = Some(planet.position());
+                break;
+            }
+        }
+
+        // Draw Moon-centered rings (7 rings at 1500 unit intervals)
+        if let Some(moon_world_pos) = moon_pos {
+            let moon_map_pos = world_to_map(moon_world_pos);
+            let moon_radius = 1737.0; // Moon's radius from constants
+
+            for i in 1..=7 {
+                let ring_distance = moon_radius + (i as f32 * 1500.0);
+                let ring_radius_on_map = ring_distance * map_scale;
+
+                // Draw rings that move with the Moon
+                draw_circle_lines(
+                    moon_map_pos.x,
+                    moon_map_pos.y,
+                    ring_radius_on_map,
+                    1.0,
+                    Color::new(0.4, 0.4, 0.6, 0.4), // Slightly blue-tinted for Moon
+                );
+            }
+        }
+
+        // Draw planets
+        for planet in self.world.planets() {
+            let map_pos = world_to_map(planet.position());
+            let planet_radius = planet.radius() * map_scale;
+            let planet_radius_clamped = planet_radius.max(8.0);
+
+            draw_circle(map_pos.x, map_pos.y, planet_radius_clamped, planet.color());
+            draw_circle_lines(map_pos.x, map_pos.y, planet_radius_clamped, 2.0, WHITE);
+
+            // Label
+            let label = if planet.mass() == earth_mass { "Earth" } else { "Moon" };
+            draw_text(label, map_pos.x - 15.0, map_pos.y - planet_radius_clamped - 5.0, 14.0, WHITE);
+        }
+
+        // Draw all player rockets (different colors per player)
+        for (rocket_id, rocket) in self.world.rockets_with_ids() {
+            let map_pos = world_to_map(rocket.position());
+            let rocket_size = 6.0;
+
+            // Get player color
+            let player_color = if let Some(player_id) = rocket.player_id() {
+                Self::get_player_color(player_id)
+            } else {
+                WHITE
+            };
+
+            // Bright player color dot
+            draw_circle(map_pos.x, map_pos.y, rocket_size, player_color);
+            draw_circle_lines(map_pos.x, map_pos.y, rocket_size, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
+
+            // Label
+            if let Some(player_id) = rocket.player_id() {
+                let label = format!("P{}", player_id);
+                draw_text(&label, map_pos.x - 10.0, map_pos.y - 10.0, 12.0, WHITE);
+            }
+        }
+
+        // Draw connection lines between satellites in range
+        let satellite_transfer_range = GameConstants::SATELLITE_TRANSFER_RANGE;
+        let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+
+        for i in 0..satellites.len() {
+            for j in (i + 1)..satellites.len() {
+                let (_id1, sat1) = satellites[i];
+                let (_id2, sat2) = satellites[j];
+
+                let distance = vector_helper::distance(sat1.position(), sat2.position());
+
+                if distance <= satellite_transfer_range {
+                    let map_pos1 = world_to_map(sat1.position());
+                    let map_pos2 = world_to_map(sat2.position());
+
+                    // Green connection line
+                    draw_line(
+                        map_pos1.x,
+                        map_pos1.y,
+                        map_pos2.x,
+                        map_pos2.y,
+                        2.0,
+                        Color::new(0.0, 1.0, 0.0, 0.4),
+                    );
+                }
+            }
+        }
+
+        // Draw satellites
+        let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+        for (sat_id, satellite) in &satellites {
+            let map_pos = world_to_map(satellite.position());
+            let is_marked = self.marked_satellites.contains(sat_id);
+
+            // Satellite dot
+            let sat_color = if is_marked {
+                Color::new(1.0, 1.0, 0.0, 1.0) // Yellow for marked
+            } else {
+                satellite.status_color()
+            };
+
+            let sat_size = if is_marked { 5.0 } else { 4.0 };
+
+            draw_circle(map_pos.x, map_pos.y, sat_size, sat_color);
+            draw_circle_lines(map_pos.x, map_pos.y, sat_size, 1.0, WHITE);
+
+            // Satellite ID label
+            let id_text = format!("{}", sat_id);
+            draw_text(&id_text, map_pos.x + 7.0, map_pos.y + 4.0, 12.0, WHITE);
+        }
+
+        // Draw bullet trajectories (red lines showing curved path) - same red color for all players
+        let bullets: Vec<_> = self.world.bullets_with_ids().collect();
+        for (_bullet_id, bullet) in &bullets {
+            let bullet_pos = bullet.position();
+            let bullet_vel = bullet.velocity();
+
+            // Predict bullet trajectory accounting for moving planets (especially Moon)
+            // Use 600 steps (6x normal) to show longer trajectory in map
+            let prediction_steps = 600;
+            let dt = 0.1; // Time step for prediction
+            let mut predicted_positions = Vec::new();
+            let mut current_pos = bullet_pos;
+            let mut current_vel = bullet_vel;
+
+            // Create mutable copies of planet states (position, velocity, mass, radius)
+            // This allows us to simulate their motion during trajectory prediction
+            let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = self.world.planets()
+                .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+                .collect();
+
+            // Identify Earth (largest planet) for pinning - it doesn't move
+            let earth_index = planet_states
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.3.partial_cmp(&b.3).unwrap())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+
+            for _ in 0..prediction_steps {
+                predicted_positions.push(current_pos);
+
+                // Step 1: Apply planet-to-planet gravity (e.g., Moon orbiting Earth)
+                if planet_states.len() >= 2 {
+                    for i in 0..planet_states.len() {
+                        if i == earth_index {
+                            continue; // Earth is pinned, doesn't move
+                        }
+
+                        let mut planet_acceleration = Vec2::ZERO;
+
+                        // Calculate gravity from all other planets
+                        for j in 0..planet_states.len() {
+                            if i == j {
+                                continue;
+                            }
+
+                            let (pos_i, _, mass_i, radius_i) = planet_states[i];
+                            let (pos_j, _, mass_j, _) = planet_states[j];
+
+                            let direction = pos_j - pos_i;
+                            let distance = direction.length();
+
+                            if distance > radius_i {
+                                // Use same gravity constant as actual physics (GameConstants::G = 100.0)
+                                let force_magnitude = (GameConstants::G * mass_i * mass_j) / (distance * distance);
+                                let force_direction = direction / distance;
+                                planet_acceleration += force_direction * (force_magnitude / mass_i);
+                            }
+                        }
+
+                        // Update planet velocity
+                        planet_states[i].1 += planet_acceleration * dt;
+                    }
+                }
+
+                // Step 2: Update planet positions based on their velocities
+                for i in 0..planet_states.len() {
+                    if i != earth_index {
+                        let vel = planet_states[i].1;
+                        planet_states[i].0 += vel * dt;
+                    }
+                }
+
+                // Step 3: Apply gravity from updated planet positions to bullet
+                // Use same gravity constant as actual physics
+                let mut total_accel = Vec2::ZERO;
+                for &(planet_pos, _, planet_mass, _) in &planet_states {
+                    let diff = planet_pos - current_pos;
+                    let distance = diff.length();
+                    if distance > 0.0 {
+                        let direction = diff / distance;
+                        let bullet_mass = 1.0; // Bullet mass
+                        let force_magnitude = (GameConstants::G * planet_mass * bullet_mass) / (distance * distance);
+                        let acceleration = direction * (force_magnitude / bullet_mass);
+                        total_accel += acceleration;
+                    }
+                }
+
+                // Step 4: Update bullet velocity and position
+                current_vel += total_accel * dt;
+                current_pos += current_vel * dt;
+
+                // Step 5: Check for collision with planets at their PREDICTED positions
+                // Only stop if bullet will actually hit planet when it arrives at this time
+                let mut hit_planet = false;
+                for &(planet_pos, _, _, planet_radius) in &planet_states {
+                    let distance = (planet_pos - current_pos).length();
+                    if distance < planet_radius + 5.0 {
+                        hit_planet = true;
+                        break;
+                    }
+                }
+                if hit_planet {
+                    break;
+                }
+            }
+
+            // Draw red trajectory line
+            for i in 0..(predicted_positions.len() - 1) {
+                let pos1 = predicted_positions[i];
+                let pos2 = predicted_positions[i + 1];
+                let map_pos1 = world_to_map(pos1);
+                let map_pos2 = world_to_map(pos2);
+
+                draw_line(
+                    map_pos1.x,
+                    map_pos1.y,
+                    map_pos2.x,
+                    map_pos2.y,
+                    2.0,
+                    Color::new(1.0, 0.0, 0.0, 0.6), // Red trajectory
+                );
+            }
+
+            // Draw bullet current position as small red dot
+            let bullet_map_pos = world_to_map(bullet_pos);
+            draw_circle(bullet_map_pos.x, bullet_map_pos.y, 3.0, Color::new(1.0, 0.0, 0.0, 1.0));
+        }
+
+        // Satellite list on the right side of the map
+        let list_x = map_x + map_size + 20.0;
+        let list_y = map_y + 60.0;
+        let list_width = 200.0;
+
+        // List background
+        draw_rectangle(list_x, list_y - 10.0, list_width, map_size - 50.0, Color::new(0.0, 0.0, 0.0, 0.8));
+        draw_rectangle_lines(list_x, list_y - 10.0, list_width, map_size - 50.0, 2.0, Color::new(0.0, 1.0, 0.0, 0.6));
+
+        draw_text("SATELLITES", list_x + 10.0, list_y + 10.0, 16.0, Color::new(0.0, 1.0, 0.0, 1.0));
+
+        let mut y_offset = 40.0;
+        for (sat_id, satellite) in &satellites {
+            let is_marked = self.marked_satellites.contains(sat_id);
+            let mark_indicator = if is_marked { "[X]" } else { "[ ]" };
+
+            let fuel_pct = satellite.fuel_percentage();
+            let sat_text = format!("{} ID:{} F:{:.0}%", mark_indicator, sat_id, fuel_pct);
+
+            let text_color = if is_marked {
+                Color::new(1.0, 1.0, 0.0, 1.0)
+            } else {
+                WHITE
+            };
+
+            draw_text(&sat_text, list_x + 10.0, list_y + y_offset, 14.0, text_color);
+            y_offset += 20.0;
+
+            if y_offset > map_size - 100.0 {
+                break; // Don't overflow the list
+            }
+        }
+
+        // Instructions
+        let instructions = "Click satellite ID to toggle mark | ESC to close | 5 to toggle";
+        let inst_dims = measure_text(instructions, None, 12, 1.0);
+        draw_text(
+            instructions,
+            map_x + map_size / 2.0 - inst_dims.width / 2.0,
+            map_y + map_size - 15.0,
+            12.0,
+            Color::new(0.7, 0.7, 0.7, 1.0),
+        );
+    }
+
     /// Render the game
     pub fn render(&mut self) {
         // Set camera
@@ -654,14 +1015,16 @@ impl MultiplayerHost {
         self.vehicle_manager.draw_visualization_hud();
 
         // Show host status at bottom
-        let clients = self.clients.lock().unwrap();
-        draw_text(
-            &format!("HOST | Port: {} | Clients: {}", self.port, clients.len()),
-            10.0,
-            screen_height() - 20.0,
-            20.0,
-            GREEN,
-        );
+        {
+            let clients = self.clients.lock().unwrap();
+            draw_text(
+                &format!("HOST | Port: {} | Clients: {}", self.port, clients.len()),
+                10.0,
+                screen_height() - 20.0,
+                20.0,
+                GREEN,
+            );
+        }
 
         // Show "Press ENTER for controls" at top-right
         let help_text = "Press ENTER for controls";
@@ -681,6 +1044,11 @@ impl MultiplayerHost {
         // Draw controls popup if showing
         if self.show_controls {
             self.draw_controls_popup();
+        }
+
+        // Draw network map popup if showing
+        if self.show_network_map {
+            self.draw_network_map();
         }
     }
 
