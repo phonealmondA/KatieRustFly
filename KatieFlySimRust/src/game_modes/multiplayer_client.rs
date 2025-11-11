@@ -327,7 +327,7 @@ impl MultiplayerClient {
         // we're probably the newest client, so use the highest player_id
         if my_rocket_id.is_none() && self.active_rocket_id.is_none() && highest_player_id > 0 {
             self.player_id = highest_player_id;
-            self.player_state = PlayerInputState::new(highest_player_id as usize);
+            self.player_state = PlayerInputState::new(highest_player_id);
             log::info!("Assigned player ID from snapshot: {}", highest_player_id);
 
             // Find the rocket with this player_id
