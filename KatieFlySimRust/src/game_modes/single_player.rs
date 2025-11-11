@@ -744,14 +744,15 @@ impl SinglePlayerGame {
             draw_text(&id_text, map_pos.x + 7.0, map_pos.y + 4.0, 12.0, WHITE);
         }
 
-        // Draw bullet trajectories (red lines showing path)
+        // Draw bullet trajectories (red lines showing curved path, 3x longer than default)
         let bullets: Vec<_> = self.world.bullets_with_ids().collect();
         for (_bullet_id, bullet) in &bullets {
             let bullet_pos = bullet.position();
             let bullet_vel = bullet.velocity();
 
             // Predict bullet trajectory accounting for moving planets (especially Moon)
-            let prediction_steps = 100;
+            // Use 300 steps (3x normal) to show longer trajectory in map
+            let prediction_steps = 300;
             let dt = 0.1; // Time step for prediction
             let mut predicted_positions = Vec::new();
             let mut current_pos = bullet_pos;
@@ -796,8 +797,8 @@ impl SinglePlayerGame {
                             let distance = direction.length();
 
                             if distance > radius_i {
-                                let g = 6.674e-11 * 1e9;
-                                let force_magnitude = (g * mass_i * mass_j) / (distance * distance);
+                                // Use same gravity constant as actual physics (GameConstants::G = 100.0)
+                                let force_magnitude = (GameConstants::G * mass_i * mass_j) / (distance * distance);
                                 let force_direction = direction / distance;
                                 planet_acceleration += force_direction * (force_magnitude / mass_i);
                             }
@@ -817,14 +818,15 @@ impl SinglePlayerGame {
                 }
 
                 // Step 3: Apply gravity from updated planet positions to bullet
+                // Use same gravity constant as actual physics
                 let mut total_accel = Vec2::ZERO;
                 for &(planet_pos, _, planet_mass, _) in &planet_states {
-                    let distance = (planet_pos - current_pos).length();
+                    let diff = planet_pos - current_pos;
+                    let distance = diff.length();
                     if distance > 0.0 {
-                        let direction = (planet_pos - current_pos) / distance;
-                        let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
+                        let direction = diff / distance;
                         let bullet_mass = 1.0; // Bullet mass
-                        let force_magnitude = (g * planet_mass * bullet_mass) / (distance * distance);
+                        let force_magnitude = (GameConstants::G * planet_mass * bullet_mass) / (distance * distance);
                         let acceleration = direction * (force_magnitude / bullet_mass);
                         total_accel += acceleration;
                     }
