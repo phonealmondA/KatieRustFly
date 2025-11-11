@@ -365,6 +365,15 @@ impl MultiplayerHost {
                 }
             }
 
+            // Shoot bullet (W key for multiplayer, X for singleplayer)
+            if is_key_pressed(KeyCode::W) {
+                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rocket_id) {
+                    log::info!("Bullet {} fired from rocket {}", bullet_id, rocket_id);
+                } else {
+                    log::info!("Cannot shoot: not enough fuel (need 1 unit)");
+                }
+            }
+
             // Zoom controls (Q = zoom in, E = zoom out, same as singleplayer)
             if is_key_down(KeyCode::Q) {
                 self.camera.adjust_zoom(-0.02); // Zoom in
