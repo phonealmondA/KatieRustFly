@@ -463,9 +463,11 @@ impl World {
             for bullet in self.bullets.values_mut() {
                 // Calculate gravitational force from all planets
                 for planet in &planet_refs_for_bullets {
-                    let distance = (bullet.position() - planet.position()).length();
+                    let diff = planet.position() - bullet.position();
+                    let distance = diff.length();
                     if distance > 0.0 {
-                        let direction = (planet.position() - bullet.position()) / distance;
+                        // Direction points FROM bullet TO planet (pull bullet towards planet)
+                        let direction = diff / distance;
                         let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
                         let force_magnitude = (g * planet.mass() * bullet.mass()) / (distance * distance);
                         let acceleration = direction * (force_magnitude / bullet.mass());
