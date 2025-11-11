@@ -2,12 +2,14 @@
 // Integrates all systems for playable game
 
 use macroquad::prelude::*;
+use std::collections::HashSet;
 
 use crate::entities::{GameObject, Planet, Rocket};
 use crate::game_constants::GameConstants;
 use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
-use crate::systems::{World, VehicleManager};
+use crate::systems::{World, VehicleManager, EntityId};
 use crate::ui::{Camera, GameInfoDisplay};
+use crate::utils::vector_helper;
 
 /// Single player game result
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +41,10 @@ pub struct SinglePlayerGame {
     // Starting position for new rockets
     rocket_spawn_position: Vec2,
     rocket_spawn_velocity: Vec2,
+
+    // Network map view
+    show_network_map: bool,
+    marked_satellites: HashSet<EntityId>,
 }
 
 impl SinglePlayerGame {
@@ -62,6 +68,8 @@ impl SinglePlayerGame {
             auto_save_interval: 60.0, // Auto-save every 60 seconds
             rocket_spawn_position: Vec2::ZERO,
             rocket_spawn_velocity: Vec2::ZERO,
+            show_network_map: false,
+            marked_satellites: HashSet::new(),
         }
     }
 
@@ -247,10 +255,13 @@ impl SinglePlayerGame {
 
     /// Handle input for game controls
     pub fn handle_input(&mut self) -> SinglePlayerResult {
-        // Check for escape to return to menu or close controls popup
+        // Check for escape to return to menu or close popups
         if is_key_pressed(KeyCode::Escape) {
             if self.show_controls {
                 self.show_controls = false;
+                self.is_paused = false;
+            } else if self.show_network_map {
+                self.show_network_map = false;
                 self.is_paused = false;
             } else {
                 return SinglePlayerResult::ReturnToMenu;
@@ -263,10 +274,11 @@ impl SinglePlayerGame {
             self.is_paused = self.show_controls; // Pause when showing controls
         }
 
-        // Handle mouse click for controls button and popup
+        // Handle mouse click for controls button, popup, and network map
         if is_mouse_button_pressed(MouseButton::Left) {
             let mouse_pos = mouse_position();
             let screen_w = screen_width();
+            let screen_h = screen_height();
 
             // Controls button in top-right corner (40x30 button with 10px margin)
             let button_x = screen_w - 50.0;
@@ -285,7 +297,7 @@ impl SinglePlayerGame {
             } else if self.show_controls {
                 // Only check "click outside to close" if we didn't click the button
                 let popup_x = screen_w / 2.0 - 200.0;
-                let popup_y = screen_height() / 2.0 - 250.0;
+                let popup_y = screen_h / 2.0 - 250.0;
                 let popup_w = 400.0;
                 let popup_h = 500.0;
 
@@ -298,6 +310,84 @@ impl SinglePlayerGame {
                     self.show_controls = false;
                     self.is_paused = false;
                     log::info!("Clicked outside popup, closing controls");
+                }
+            } else if self.show_network_map {
+                // Handle clicks on satellites in the network map
+                let map_size = 700.0;
+                let map_x = screen_w / 2.0 - map_size / 2.0;
+                let map_y = screen_h / 2.0 - map_size / 2.0;
+
+                // Check if click is in satellite list
+                let list_x = map_x + map_size + 20.0;
+                let list_y = map_y + 60.0;
+                let list_width = 200.0;
+
+                if mouse_pos.0 >= list_x && mouse_pos.0 <= list_x + list_width {
+                    // Calculate which satellite was clicked based on Y position
+                    let y_offset = mouse_pos.1 - (list_y + 40.0);
+                    let sat_index = (y_offset / 20.0).floor() as usize;
+
+                    // Get satellite at this index
+                    let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+                    if sat_index < satellites.len() {
+                        let (sat_id, _) = satellites[sat_index];
+
+                        // Toggle marked status
+                        if self.marked_satellites.contains(&sat_id) {
+                            self.marked_satellites.remove(&sat_id);
+                            log::info!("Unmarked satellite {}", sat_id);
+                        } else {
+                            self.marked_satellites.insert(sat_id);
+                            log::info!("Marked satellite {}", sat_id);
+                        }
+                    }
+                }
+
+                // Check if click is on a satellite in the map itself
+                let mut earth_pos = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+                let mut earth_mass = 0.0f32;
+                for planet in self.world.planets() {
+                    if planet.mass() > earth_mass {
+                        earth_mass = planet.mass();
+                        earth_pos = planet.position();
+                    }
+                }
+
+                let map_world_radius = 50000.0;
+                let map_center = Vec2::new(map_x + map_size / 2.0, map_y + map_size / 2.0);
+                let map_scale = (map_size * 0.45) / map_world_radius;
+
+                let world_to_map = |world_pos: Vec2| -> Vec2 {
+                    let relative = world_pos - earth_pos;
+                    let scaled = relative * map_scale;
+                    map_center + scaled
+                };
+
+                // Check each satellite
+                let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+                for (sat_id, satellite) in satellites {
+                    let map_pos = world_to_map(satellite.position());
+                    let click_distance = ((mouse_pos.0 - map_pos.x).powi(2) + (mouse_pos.1 - map_pos.y).powi(2)).sqrt();
+
+                    if click_distance < 10.0 { // Click radius
+                        // Toggle marked status
+                        if self.marked_satellites.contains(&sat_id) {
+                            self.marked_satellites.remove(&sat_id);
+                            log::info!("Unmarked satellite {}", sat_id);
+                        } else {
+                            self.marked_satellites.insert(sat_id);
+                            log::info!("Marked satellite {}", sat_id);
+                        }
+                        break;
+                    }
+                }
+
+                // Check if click is outside map to close
+                if mouse_pos.0 < map_x || mouse_pos.0 > map_x + map_size + list_width + 20.0 ||
+                   mouse_pos.1 < map_y || mouse_pos.1 > map_y + map_size {
+                    self.show_network_map = false;
+                    self.is_paused = false;
+                    log::info!("Clicked outside network map, closing");
                 }
             }
         }
@@ -332,8 +422,9 @@ impl SinglePlayerGame {
             log::info!("Toggled controls panel");
         }
         if is_key_pressed(KeyCode::Key5) {
-            self.info_display.toggle_network_panel();
-            log::info!("Toggled network panel");
+            self.show_network_map = !self.show_network_map;
+            self.is_paused = self.show_network_map; // Pause when showing map
+            log::info!("Toggled network map: {}", self.show_network_map);
         }
         // Key 0 to toggle all panels
         if is_key_pressed(KeyCode::Key0) {
@@ -466,6 +557,198 @@ impl SinglePlayerGame {
         }
     }
 
+    /// Draw network map popup
+    fn draw_network_map(&mut self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let map_size = 700.0;
+        let map_x = screen_w / 2.0 - map_size / 2.0;
+        let map_y = screen_h / 2.0 - map_size / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.6));
+
+        // Map background (green-tinted)
+        draw_rectangle(map_x, map_y, map_size, map_size, Color::new(0.05, 0.15, 0.05, 0.95));
+        // Map border
+        draw_rectangle_lines(map_x, map_y, map_size, map_size, 3.0, Color::new(0.0, 1.0, 0.0, 0.8));
+
+        // Title
+        let title = "SATELLITE NETWORK MAP";
+        let title_size = 24.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            map_x + map_size / 2.0 - title_dims.width / 2.0,
+            map_y + 30.0,
+            title_size,
+            Color::new(0.0, 1.0, 0.0, 1.0),
+        );
+
+        // Calculate map scale - center on Earth
+        // Find Earth (the most massive planet)
+        let mut earth_pos = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+        let mut earth_mass = 0.0f32;
+        for planet in self.world.planets() {
+            if planet.mass() > earth_mass {
+                earth_mass = planet.mass();
+                earth_pos = planet.position();
+            }
+        }
+
+        // Map viewport (what area of the game world to show)
+        // Show from 0 to ~50000 units from center
+        let map_world_radius = 50000.0;
+        let map_center = Vec2::new(map_x + map_size / 2.0, map_y + map_size / 2.0);
+        let map_scale = (map_size * 0.45) / map_world_radius;
+
+        // Helper function to convert world position to map position
+        let world_to_map = |world_pos: Vec2| -> Vec2 {
+            let relative = world_pos - earth_pos;
+            let scaled = relative * map_scale;
+            map_center + scaled
+        };
+
+        // Draw range rings at 1500 unit intervals from surface
+        let earth_radius = 10000.0; // From constants
+        for i in 1..=20 {
+            let ring_distance = earth_radius + (i as f32 * 1500.0);
+            let ring_radius_on_map = ring_distance * map_scale;
+
+            if ring_radius_on_map < map_size / 2.0 {
+                draw_circle_lines(
+                    map_center.x,
+                    map_center.y,
+                    ring_radius_on_map,
+                    1.0,
+                    Color::new(0.0, 0.5, 0.0, 0.3),
+                );
+            }
+        }
+
+        // Draw planets
+        for planet in self.world.planets() {
+            let map_pos = world_to_map(planet.position());
+            let planet_radius = planet.radius() * map_scale;
+            let planet_radius_clamped = planet_radius.max(8.0);
+
+            draw_circle(map_pos.x, map_pos.y, planet_radius_clamped, planet.color());
+            draw_circle_lines(map_pos.x, map_pos.y, planet_radius_clamped, 2.0, WHITE);
+
+            // Label
+            let label = if planet.mass() == earth_mass { "Earth" } else { "Moon" };
+            draw_text(label, map_pos.x - 15.0, map_pos.y - planet_radius_clamped - 5.0, 14.0, WHITE);
+        }
+
+        // Draw player rocket
+        if let Some(rocket) = self.world.get_active_rocket() {
+            let map_pos = world_to_map(rocket.position());
+            let rocket_size = 6.0;
+
+            // Bright player color dot
+            draw_circle(map_pos.x, map_pos.y, rocket_size, Color::new(1.0, 1.0, 1.0, 1.0));
+            draw_circle_lines(map_pos.x, map_pos.y, rocket_size, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
+
+            // Label
+            draw_text("YOU", map_pos.x - 12.0, map_pos.y - 10.0, 12.0, WHITE);
+        }
+
+        // Draw connection lines between satellites in range
+        let satellite_transfer_range = GameConstants::SATELLITE_TRANSFER_RANGE;
+        let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+
+        for i in 0..satellites.len() {
+            for j in (i + 1)..satellites.len() {
+                let (id1, sat1) = satellites[i];
+                let (id2, sat2) = satellites[j];
+
+                let distance = vector_helper::distance(sat1.position(), sat2.position());
+
+                if distance <= satellite_transfer_range {
+                    let map_pos1 = world_to_map(sat1.position());
+                    let map_pos2 = world_to_map(sat2.position());
+
+                    // Green connection line
+                    draw_line(
+                        map_pos1.x,
+                        map_pos1.y,
+                        map_pos2.x,
+                        map_pos2.y,
+                        2.0,
+                        Color::new(0.0, 1.0, 0.0, 0.4),
+                    );
+                }
+            }
+        }
+
+        // Draw satellites
+        let satellites: Vec<_> = self.world.satellites_with_ids().collect();
+        for (sat_id, satellite) in &satellites {
+            let map_pos = world_to_map(satellite.position());
+            let is_marked = self.marked_satellites.contains(sat_id);
+
+            // Satellite dot
+            let sat_color = if is_marked {
+                Color::new(1.0, 1.0, 0.0, 1.0) // Yellow for marked
+            } else {
+                satellite.status_color()
+            };
+
+            let sat_size = if is_marked { 5.0 } else { 4.0 };
+
+            draw_circle(map_pos.x, map_pos.y, sat_size, sat_color);
+            draw_circle_lines(map_pos.x, map_pos.y, sat_size, 1.0, WHITE);
+
+            // Satellite ID label
+            let id_text = format!("{}", sat_id);
+            draw_text(&id_text, map_pos.x + 7.0, map_pos.y + 4.0, 12.0, WHITE);
+        }
+
+        // Satellite list on the right side of the map
+        let list_x = map_x + map_size + 20.0;
+        let list_y = map_y + 60.0;
+        let list_width = 200.0;
+
+        // List background
+        draw_rectangle(list_x, list_y - 10.0, list_width, map_size - 50.0, Color::new(0.0, 0.0, 0.0, 0.8));
+        draw_rectangle_lines(list_x, list_y - 10.0, list_width, map_size - 50.0, 2.0, Color::new(0.0, 1.0, 0.0, 0.6));
+
+        draw_text("SATELLITES", list_x + 10.0, list_y + 10.0, 16.0, Color::new(0.0, 1.0, 0.0, 1.0));
+
+        let mut y_offset = 40.0;
+        for (sat_id, satellite) in &satellites {
+            let is_marked = self.marked_satellites.contains(sat_id);
+            let mark_indicator = if is_marked { "[X]" } else { "[ ]" };
+
+            let fuel_pct = satellite.fuel_percentage();
+            let sat_text = format!("{} ID:{} F:{:.0}%", mark_indicator, sat_id, fuel_pct);
+
+            let text_color = if is_marked {
+                Color::new(1.0, 1.0, 0.0, 1.0)
+            } else {
+                WHITE
+            };
+
+            draw_text(&sat_text, list_x + 10.0, list_y + y_offset, 14.0, text_color);
+            y_offset += 20.0;
+
+            if y_offset > map_size - 100.0 {
+                break; // Don't overflow the list
+            }
+        }
+
+        // Instructions
+        let instructions = "Click satellite ID to toggle mark | ESC to close | 5 to toggle";
+        let inst_dims = measure_text(instructions, None, 12, 1.0);
+        draw_text(
+            instructions,
+            map_x + map_size / 2.0 - inst_dims.width / 2.0,
+            map_y + map_size - 15.0,
+            12.0,
+            Color::new(0.7, 0.7, 0.7, 1.0),
+        );
+    }
+
     /// Render the game
     pub fn render(&mut self) {
         // Set camera view
@@ -483,6 +766,42 @@ impl SinglePlayerGame {
         // Draw vehicle visualizations (trajectory, gravity forces) using VehicleManager
         if let Some(rocket) = self.world.get_active_rocket() {
             self.vehicle_manager.draw_visualizations(rocket, &all_planets, zoom_level, self.camera.camera());
+        }
+
+        // Draw overlay dots for marked satellites
+        for sat_id in &self.marked_satellites {
+            if let Some(satellite) = self.world.get_satellite(*sat_id) {
+                let sat_pos = satellite.position();
+
+                // Calculate overlay size based on satellite transfer range
+                let overlay_radius = GameConstants::SATELLITE_TRANSFER_RANGE;
+
+                // Draw bright overlay circle at satellite position
+                // Use a very bright player color (white with yellow tint)
+                draw_circle(
+                    sat_pos.x,
+                    sat_pos.y,
+                    overlay_radius,
+                    Color::new(1.0, 1.0, 0.0, 0.2), // Yellow, semi-transparent
+                );
+
+                // Draw outline for better visibility
+                draw_circle_lines(
+                    sat_pos.x,
+                    sat_pos.y,
+                    overlay_radius,
+                    8.0 / zoom_level, // Scale line thickness with zoom
+                    Color::new(1.0, 1.0, 0.0, 0.8), // Bright yellow
+                );
+
+                // Draw a smaller bright center dot
+                draw_circle(
+                    sat_pos.x,
+                    sat_pos.y,
+                    20.0,
+                    Color::new(1.0, 1.0, 0.0, 1.0), // Fully opaque yellow center
+                );
+            }
         }
 
         // Reset to default camera for HUD
@@ -601,7 +920,7 @@ impl SinglePlayerGame {
                 ("2", "Toggle planet panel"),
                 ("3", "Toggle orbit panel"),
                 ("4", "Toggle controls panel"),
-                ("5", "Toggle network panel"),
+                ("5", "Toggle network map"),
                 ("9", "Hide all panels"),
                 ("0", "Show all panels"),
                 ("F5", "Quick save"),
@@ -663,6 +982,11 @@ impl SinglePlayerGame {
                 14.0,
                 Color::new(0.7, 0.7, 0.7, 1.0),
             );
+        }
+
+        // Draw network map popup if showing
+        if self.show_network_map {
+            self.draw_network_map();
         }
     }
 
