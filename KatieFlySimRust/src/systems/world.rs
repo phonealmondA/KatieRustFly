@@ -96,8 +96,9 @@ impl World {
             }
 
             // Remove fuel (1 unit becomes the bullet)
+            // Use set_fuel_direct to avoid momentum preservation - the bullet carries the mass/momentum
             let new_fuel = rocket.current_fuel() - 1.0;
-            rocket.set_fuel(new_fuel);
+            rocket.set_fuel_direct(new_fuel);
 
             // Get rocket's facing direction
             let rotation = rocket.rotation();
