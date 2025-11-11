@@ -751,8 +751,8 @@ impl SinglePlayerGame {
             let bullet_vel = bullet.velocity();
 
             // Predict bullet trajectory accounting for moving planets (especially Moon)
-            // Use 300 steps (3x normal) to show longer trajectory in map
-            let prediction_steps = 300;
+            // Use 600 steps (6x normal) to show longer trajectory in map
+            let prediction_steps = 600;
             let dt = 0.1; // Time step for prediction
             let mut predicted_positions = Vec::new();
             let mut current_pos = bullet_pos;

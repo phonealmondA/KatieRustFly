@@ -22,7 +22,7 @@ impl Bullet {
             data: GameObjectData::new(position, velocity, WHITE),
             mass: 1.0,  // 1 unit of mass
             lifetime: 0.0,
-            max_lifetime: 60.0,  // Bullets last 60 seconds
+            max_lifetime: 360.0,  // Bullets last 360 seconds (6 minutes)
             size: 3.0,  // Small square, 3x3 pixels
         }
     }

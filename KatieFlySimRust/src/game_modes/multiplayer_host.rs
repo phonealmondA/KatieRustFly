@@ -3,7 +3,7 @@
 
 use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,7 @@ use crate::game_constants::GameConstants;
 use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
+use crate::utils::vector_helper;
 
 const SNAPSHOT_INTERVAL: f32 = 12.0; // 12 seconds between broadcasts
 
@@ -61,6 +62,10 @@ pub struct MultiplayerHost {
     paused: bool,
     show_controls: bool,
     current_save_name: Option<String>,
+
+    // Network map view
+    show_network_map: bool,
+    marked_satellites: HashSet<EntityId>,
 }
 
 impl MultiplayerHost {
@@ -135,6 +140,9 @@ impl MultiplayerHost {
             paused: false,
             show_controls: false,
             current_save_name: None,
+
+            show_network_map: false,
+            marked_satellites: HashSet::new(),
         })
     }
 
@@ -257,7 +265,8 @@ impl MultiplayerHost {
             self.game_info.toggle_controls_panel();
         }
         if is_key_pressed(KeyCode::Key5) {
-            self.game_info.toggle_network_panel();
+            self.show_network_map = !self.show_network_map;
+            log::info!("Toggled network map: {}", self.show_network_map);
         }
         // Key 0 to toggle all panels
         if is_key_pressed(KeyCode::Key0) {
