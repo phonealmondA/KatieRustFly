@@ -608,9 +608,9 @@ impl SinglePlayerGame {
             Vec2::new(map_center.x + scaled.x, map_center.y - scaled.y)
         };
 
-        // Draw range rings at 1500 unit intervals from surface
+        // Draw range rings at 1500 unit intervals from Earth's surface
         let earth_radius = 10000.0; // From constants
-        for i in 1..=20 {
+        for i in 1..=40 {
             let ring_distance = earth_radius + (i as f32 * 1500.0);
             let ring_radius_on_map = ring_distance * map_scale;
 
@@ -621,6 +621,36 @@ impl SinglePlayerGame {
                     ring_radius_on_map,
                     1.0,
                     Color::new(0.0, 0.5, 0.0, 0.3),
+                );
+            }
+        }
+
+        // Find Moon position for Moon-centered rings
+        let mut moon_pos = None;
+        for planet in self.world.planets() {
+            if planet.mass() != earth_mass {
+                // This is the Moon (not Earth)
+                moon_pos = Some(planet.position());
+                break;
+            }
+        }
+
+        // Draw Moon-centered rings (7 rings at 1500 unit intervals)
+        if let Some(moon_world_pos) = moon_pos {
+            let moon_map_pos = world_to_map(moon_world_pos);
+            let moon_radius = 1737.0; // Moon's radius from constants
+
+            for i in 1..=7 {
+                let ring_distance = moon_radius + (i as f32 * 1500.0);
+                let ring_radius_on_map = ring_distance * map_scale;
+
+                // Draw rings that move with the Moon
+                draw_circle_lines(
+                    moon_map_pos.x,
+                    moon_map_pos.y,
+                    ring_radius_on_map,
+                    1.0,
+                    Color::new(0.4, 0.4, 0.6, 0.4), // Slightly blue-tinted for Moon
                 );
             }
         }
