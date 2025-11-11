@@ -108,12 +108,11 @@ impl World {
             let bullet_position = rocket.position() + direction * (rocket_size + 5.0);
 
             // Calculate bullet velocity (rocket velocity + extra speed in facing direction)
-            let bullet_speed = 500.0; // Additional speed
-            let bullet_velocity = rocket.velocity() + direction * bullet_speed;
+            let bullet_velocity = rocket.velocity() + direction * GameConstants::BULLET_SPEED;
 
             // Apply recoil to rocket (opposite direction, small amount)
-            let recoil_force = -direction * 50.0; // Small recoil
-            rocket.set_velocity(rocket.velocity() + recoil_force * 0.01); // Very small effect
+            let recoil_force = -direction * GameConstants::BULLET_RECOIL_FORCE;
+            rocket.set_velocity(rocket.velocity() + recoil_force * GameConstants::BULLET_RECOIL_MULTIPLIER);
 
             // Create and add bullet
             let bullet = Bullet::new(bullet_position, bullet_velocity);

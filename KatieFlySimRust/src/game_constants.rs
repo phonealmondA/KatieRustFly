@@ -76,6 +76,11 @@ impl GameConstants {
     pub const BASE_THRUST_MULTIPLIER: f32 = 100000.0;
     pub const ENGINE_THRUST_POWER: f32 = Self::BASE_THRUST_MULTIPLIER;
 
+    // ==================== Bullet Parameters ====================
+    pub const BULLET_SPEED: f32 = 500.0;          // Speed added to bullet when fired
+    pub const BULLET_RECOIL_FORCE: f32 = 50.0;    // Recoil force magnitude
+    pub const BULLET_RECOIL_MULTIPLIER: f32 = 0.01; // How much recoil affects the rocket
+
     // ==================== Vehicle Transformation ====================
     pub const TRANSFORM_VELOCITY_FACTOR: f32 = 0.1;
 
