@@ -82,6 +82,7 @@ pub struct SavedRocket {
     pub rotation: f32,
     pub fuel: f32,
     pub color: (u8, u8, u8),
+    pub player_id: Option<u32>, // Which player owns this rocket (for multiplayer)
 }
 
 impl SavedRocket {
@@ -99,6 +100,7 @@ impl SavedRocket {
                 (rocket.color().g * 255.0) as u8,
                 (rocket.color().b * 255.0) as u8,
             ),
+            player_id: rocket.player_id(),
         }
     }
 
@@ -116,6 +118,7 @@ impl SavedRocket {
         // (velocity is already correct from the save, changing mass shouldn't affect it)
         rocket.set_fuel_direct(self.fuel);
         rocket.set_rotation(self.rotation);
+        rocket.set_player_id(self.player_id);
 
         (self.id, rocket)
     }

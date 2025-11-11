@@ -54,6 +54,32 @@ pub struct MultiplayerHost {
 }
 
 impl MultiplayerHost {
+    /// Calculate spawn position for a player based on their player ID
+    /// Host (player 0) spawns at 0 degrees, each subsequent player at +5 degrees
+    fn calculate_spawn_position(player_id: u32) -> Vec2 {
+        let angle_degrees = player_id as f32 * 5.0;
+        let angle_radians = angle_degrees.to_radians();
+        let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+
+        Vec2::new(
+            GameConstants::MAIN_PLANET_X + spawn_distance * angle_radians.cos(),
+            GameConstants::MAIN_PLANET_Y + spawn_distance * angle_radians.sin(),
+        )
+    }
+
+    /// Get rocket color for a player based on their player ID
+    fn get_player_color(player_id: u32) -> Color {
+        match player_id {
+            0 => Color::from_rgba(255, 100, 100, 255), // Red for host
+            1 => Color::from_rgba(100, 100, 255, 255), // Blue for player 1
+            2 => Color::from_rgba(100, 255, 100, 255), // Green for player 2
+            3 => Color::from_rgba(255, 255, 100, 255), // Yellow for player 3
+            4 => Color::from_rgba(255, 100, 255, 255), // Magenta for player 4
+            5 => Color::from_rgba(100, 255, 255, 255), // Cyan for player 5
+            _ => Color::from_rgba(200, 200, 200, 255), // Gray for others
+        }
+    }
+
     /// Create a new multiplayer host
     pub fn new(window_size: Vec2, port: u16) -> Result<Self, String> {
         // Bind UDP socket
@@ -119,20 +145,15 @@ impl MultiplayerHost {
         secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
         self.world.add_planet(secondary_planet);
 
-        // Spawn host's rocket (player 0)
-        let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-        let spawn_position = Vec2::new(
-            GameConstants::MAIN_PLANET_X + spawn_distance,
-            GameConstants::MAIN_PLANET_Y,
-        );
-        let spawn_velocity = Vec2::new(0.0, 0.0);
-
-        let rocket = Rocket::new(
+        // Spawn host's rocket (player 0) at 0 degrees
+        let spawn_position = Self::calculate_spawn_position(0);
+        let mut rocket = Rocket::new(
             spawn_position,
-            spawn_velocity,
-            Color::from_rgba(255, 100, 100, 255), // Red for host
+            Vec2::new(0.0, 0.0),
+            Self::get_player_color(0),
             GameConstants::ROCKET_BASE_MASS,
         );
+        rocket.set_player_id(Some(0)); // Host is player 0
 
         let rocket_id = self.world.add_rocket(rocket);
         self.active_rocket_id = Some(rocket_id);
@@ -296,18 +317,15 @@ impl MultiplayerHost {
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
                     log::info!("Host converted rocket to satellite");
 
-                    // Spawn new rocket for host
-                    let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-                    let spawn_position = Vec2::new(
-                        GameConstants::MAIN_PLANET_X + spawn_distance,
-                        GameConstants::MAIN_PLANET_Y,
-                    );
-                    let new_rocket = Rocket::new(
+                    // Spawn new rocket for host at 0 degrees
+                    let spawn_position = Self::calculate_spawn_position(0);
+                    let mut new_rocket = Rocket::new(
                         spawn_position,
                         Vec2::new(0.0, 0.0),
-                        Color::from_rgba(255, 100, 100, 255),
+                        Self::get_player_color(0),
                         GameConstants::ROCKET_BASE_MASS,
                     );
+                    new_rocket.set_player_id(Some(0)); // Host is player 0
                     let new_rocket_id = self.world.add_rocket(new_rocket);
                     self.active_rocket_id = Some(new_rocket_id);
                     self.world.set_active_rocket(Some(new_rocket_id));
@@ -383,7 +401,21 @@ impl MultiplayerHost {
 
                         log::info!("New client connected: {} assigned player_id {}", src_addr, player_id);
 
-                        // TODO: Spawn a rocket for this player
+                        // Spawn a rocket for this player at their designated angle
+                        drop(clients); // Drop the lock before spawning
+                        let spawn_position = Self::calculate_spawn_position(player_id);
+                        let mut client_rocket = Rocket::new(
+                            spawn_position,
+                            Vec2::new(0.0, 0.0),
+                            Self::get_player_color(player_id),
+                            GameConstants::ROCKET_BASE_MASS,
+                        );
+                        client_rocket.set_player_id(Some(player_id)); // Tag with player ID
+                        let client_rocket_id = self.world.add_rocket(client_rocket);
+                        log::info!("Spawned rocket {:?} for player {} at angle {} degrees",
+                            client_rocket_id, player_id, player_id * 5);
+
+                        return; // Exit early since we dropped the lock
                     } else if let Some(client) = clients.get_mut(&src_addr) {
                         // Existing client - update last seen time
                         client.last_seen = get_time();
