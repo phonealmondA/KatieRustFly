@@ -456,24 +456,21 @@ impl World {
             self.satellites.remove(&satellite_id);
         }
 
-        // Apply gravity to bullets from planets
+        // Apply gravity to bullets from planets (using same method as rockets)
         {
             // Create new scope to collect planet refs for bullets
             let planet_refs_for_bullets: Vec<&Planet> = self.planets.values().collect();
             for bullet in self.bullets.values_mut() {
-                // Calculate gravitational force from all planets
+                // Use EXACT same gravity calculation as rockets
                 for planet in &planet_refs_for_bullets {
-                    let diff = planet.position() - bullet.position();
-                    let distance = diff.length();
-                    if distance > 0.0 {
-                        // Direction points FROM bullet TO planet (pull bullet towards planet)
-                        let direction = diff / distance;
-                        let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
-                        let force_magnitude = (g * planet.mass() * bullet.mass()) / (distance * distance);
-                        let acceleration = direction * (force_magnitude / bullet.mass());
-                        // TEMPORARY FIX: Negate acceleration to test if this fixes the repulsion
-                        bullet.set_velocity(bullet.velocity() - acceleration * delta_time);
-                    }
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        bullet.position(),
+                        bullet.mass(),
+                        planet.position(),
+                        planet.mass(),
+                    );
+                    let acceleration = force / bullet.mass();
+                    bullet.set_velocity(bullet.velocity() + acceleration * delta_time);
                 }
             }
         }
