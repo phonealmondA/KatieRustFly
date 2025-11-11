@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use serde::{Deserialize, Serialize};
 
 use crate::entities::{Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
@@ -13,6 +14,15 @@ use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputSt
 use crate::ui::{Camera, GameInfoDisplay};
 
 const SNAPSHOT_INTERVAL: f32 = 12.0; // 12 seconds between broadcasts
+
+/// Client input packet - sent from client to host
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClientInputPacket {
+    player_id: u32,
+    rotation_delta: f32,  // degrees per frame
+    thrust_level: f32,    // 0.0 to 1.0
+    convert_to_satellite: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MultiplayerHostResult {
@@ -349,6 +359,52 @@ impl MultiplayerHost {
         }
     }
 
+    /// Apply client input to their rocket
+    fn apply_client_input(&mut self, input: ClientInputPacket) {
+        // Find the rocket that belongs to this player
+        let mut rocket_id: Option<EntityId> = None;
+        for (id, rocket) in self.world.rockets_with_ids() {
+            if rocket.player_id() == Some(input.player_id) {
+                rocket_id = Some(id);
+                break;
+            }
+        }
+
+        if let Some(rid) = rocket_id {
+            // Apply rotation
+            if input.rotation_delta != 0.0 {
+                let rotation_radians = input.rotation_delta * std::f32::consts::PI / 180.0;
+                if let Some(rocket) = self.world.get_rocket_mut(rid) {
+                    rocket.rotate(rotation_radians);
+                }
+            }
+
+            // Apply thrust
+            if let Some(rocket) = self.world.get_rocket_mut(rid) {
+                rocket.set_thrust_level(input.thrust_level);
+            }
+
+            // Convert to satellite if requested
+            if input.convert_to_satellite {
+                if self.world.convert_rocket_to_satellite(rid).is_some() {
+                    log::info!("Player {} converted rocket to satellite", input.player_id);
+
+                    // Spawn new rocket for this player
+                    let spawn_position = Self::calculate_spawn_position(input.player_id);
+                    let mut new_rocket = Rocket::new(
+                        spawn_position,
+                        Vec2::new(0.0, 0.0),
+                        Self::get_player_color(input.player_id),
+                        GameConstants::ROCKET_BASE_MASS,
+                    );
+                    new_rocket.set_player_id(Some(input.player_id));
+                    self.world.add_rocket(new_rocket);
+                    log::info!("Respawned new rocket for player {}", input.player_id);
+                }
+            }
+        }
+    }
+
     /// Update game simulation and broadcast snapshots
     pub fn update(&mut self, delta_time: f32) {
         if self.paused {
@@ -385,7 +441,20 @@ impl MultiplayerHost {
         loop {
             match self.socket.recv_from(&mut buf) {
                 Ok((size, src_addr)) => {
-                    // Client sent a packet (likely a "join" request or keep-alive)
+                    // Try to parse as input packet first
+                    if let Ok(input_packet) = bincode::deserialize::<ClientInputPacket>(&buf[..size]) {
+                        // This is a client input packet - apply it to their rocket
+                        self.apply_client_input(input_packet);
+
+                        // Update last seen time
+                        let mut clients = self.clients.lock().unwrap();
+                        if let Some(client) = clients.get_mut(&src_addr) {
+                            client.last_seen = get_time();
+                        }
+                        continue;
+                    }
+
+                    // Not an input packet, check if it's a join/keepalive packet
                     let mut clients = self.clients.lock().unwrap();
 
                     if !clients.contains_key(&src_addr) && self.next_player_id < 20 {

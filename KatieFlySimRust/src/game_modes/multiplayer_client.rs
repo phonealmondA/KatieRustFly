@@ -4,6 +4,7 @@
 use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 use crate::entities::{Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
@@ -12,6 +13,15 @@ use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputSt
 use crate::ui::{Camera, GameInfoDisplay};
 
 const KEEPALIVE_INTERVAL: f32 = 5.0; // Send keepalive every 5 seconds
+
+/// Client input packet - sent from client to host
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClientInputPacket {
+    player_id: u32,
+    rotation_delta: f32,  // degrees per frame
+    thrust_level: f32,    // 0.0 to 1.0
+    convert_to_satellite: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MultiplayerClientResult {
@@ -120,7 +130,7 @@ impl MultiplayerClient {
 
     fn handle_player_controls(&mut self) {
         if let Some(rocket_id) = self.active_rocket_id {
-            // Rotation (A/D or Left/Right, same as singleplayer and host)
+            // Build input packet from current controls
             let mut rotation_delta = 0.0;
             if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
                 rotation_delta = 3.0; // degrees per frame
@@ -129,6 +139,7 @@ impl MultiplayerClient {
                 rotation_delta = -3.0;
             }
 
+            // Apply rotation locally for prediction
             if rotation_delta != 0.0 {
                 let rotation_radians = rotation_delta * std::f32::consts::PI / 180.0;
                 if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
@@ -136,7 +147,7 @@ impl MultiplayerClient {
                 }
             }
 
-            // Thrust adjustment (comma to decrease, period to increase, same as singleplayer and host)
+            // Thrust adjustment (comma to decrease, period to increase)
             if is_key_pressed(KeyCode::Comma) {
                 self.player_state.adjust_thrust(-0.05);
                 log::info!("Client thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
@@ -146,57 +157,39 @@ impl MultiplayerClient {
                 log::info!("Client thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
 
-            // Apply thrust (SPACE key, same as singleplayer and host)
+            // Apply thrust (SPACE key)
             let thrust_level = if is_key_down(KeyCode::Space) {
                 self.player_state.thrust_level()
             } else {
                 0.0
             };
 
+            // Apply thrust locally for prediction
             if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
                 rocket.set_thrust_level(thrust_level);
             }
 
-            // Convert to satellite (C key, same as singleplayer and host)
-            if is_key_pressed(KeyCode::C) {
-                if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
-                    log::info!("Client converted rocket to satellite");
+            // Convert to satellite (C key)
+            let convert_to_satellite = is_key_pressed(KeyCode::C);
+            if convert_to_satellite {
+                log::info!("Client requesting satellite conversion");
+            }
 
-                    // Spawn new rocket for client at their player ID angle
-                    let angle_degrees = self.player_id as f32 * 5.0;
-                    let angle_radians = angle_degrees.to_radians();
-                    let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-                    let spawn_position = Vec2::new(
-                        GameConstants::MAIN_PLANET_X + spawn_distance * angle_radians.cos(),
-                        GameConstants::MAIN_PLANET_Y + spawn_distance * angle_radians.sin(),
-                    );
+            // Send input packet to host
+            let input_packet = ClientInputPacket {
+                player_id: self.player_id,
+                rotation_delta,
+                thrust_level,
+                convert_to_satellite,
+            };
 
-                    // Determine color based on player ID
-                    let color = match self.player_id {
-                        0 => Color::from_rgba(255, 100, 100, 255), // Red
-                        1 => Color::from_rgba(100, 100, 255, 255), // Blue
-                        2 => Color::from_rgba(100, 255, 100, 255), // Green
-                        3 => Color::from_rgba(255, 255, 100, 255), // Yellow
-                        4 => Color::from_rgba(255, 100, 255, 255), // Magenta
-                        5 => Color::from_rgba(100, 255, 255, 255), // Cyan
-                        _ => Color::from_rgba(200, 200, 200, 255), // Gray
-                    };
-
-                    let mut new_rocket = Rocket::new(
-                        spawn_position,
-                        Vec2::new(0.0, 0.0),
-                        color,
-                        GameConstants::ROCKET_BASE_MASS,
-                    );
-                    new_rocket.set_player_id(Some(self.player_id)); // Tag with our player ID
-                    let new_rocket_id = self.world.add_rocket(new_rocket);
-                    self.active_rocket_id = Some(new_rocket_id);
-                    self.world.set_active_rocket(Some(new_rocket_id));
-                    log::info!("Client respawned new rocket");
+            if let Ok(bytes) = bincode::serialize(&input_packet) {
+                if let Err(e) = self.socket.send_to(&bytes, self.host_addr) {
+                    log::warn!("Failed to send input packet: {}", e);
                 }
             }
 
-            // Zoom controls (Q = zoom in, E = zoom out, same as singleplayer and host)
+            // Zoom controls (local only, doesn't affect game state)
             if is_key_down(KeyCode::Q) {
                 self.camera.adjust_zoom(-0.02); // Zoom in
             }
@@ -204,7 +197,7 @@ impl MultiplayerClient {
                 self.camera.adjust_zoom(0.02); // Zoom out
             }
 
-            // Mouse wheel zoom (same as singleplayer and host)
+            // Mouse wheel zoom (local only)
             let mouse_wheel = mouse_wheel().1;
             if mouse_wheel != 0.0 {
                 self.camera.adjust_zoom(-mouse_wheel * 0.02);
