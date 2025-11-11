@@ -44,6 +44,7 @@ pub struct MultiplayerHost {
     clients: Arc<Mutex<HashMap<SocketAddr, ConnectedClient>>>,
     snapshot_timer: f32,
     next_player_id: u32, // Next available player ID for new clients
+    port: u16, // UDP port this host is listening on
 
     // Game state
     window_size: Vec2,
@@ -79,6 +80,7 @@ impl MultiplayerHost {
             clients: Arc::new(Mutex::new(HashMap::new())),
             snapshot_timer: 0.0,
             next_player_id: 1, // Host is player 0, clients start at 1
+            port,
 
             window_size,
             paused: false,
@@ -529,7 +531,7 @@ impl MultiplayerHost {
         // Show host status at bottom
         let clients = self.clients.lock().unwrap();
         draw_text(
-            &format!("HOST | Port: ? | Clients: {}", clients.len()),
+            &format!("HOST | Port: {} | Clients: {}", self.port, clients.len()),
             10.0,
             screen_height() - 20.0,
             20.0,
