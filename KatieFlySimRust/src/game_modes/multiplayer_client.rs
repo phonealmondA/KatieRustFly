@@ -22,6 +22,7 @@ struct ClientInputPacket {
     rotation_delta: f32,  // degrees per frame
     thrust_level: f32,    // 0.0 to 1.0
     convert_to_satellite: bool,
+    shoot_bullet: bool,   // true if client wants to shoot
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -240,12 +241,10 @@ impl MultiplayerClient {
             }
 
             // Shoot bullet (W key for multiplayer, X for singleplayer)
-            if is_key_pressed(KeyCode::W) {
-                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rocket_id) {
-                    log::info!("Client bullet {} fired from rocket {}", bullet_id, rocket_id);
-                } else {
-                    log::info!("Client cannot shoot: not enough fuel (need 1 unit)");
-                }
+            // Don't shoot locally - send to host and let it handle authoritative shooting
+            let shoot_bullet = is_key_pressed(KeyCode::W);
+            if shoot_bullet {
+                log::info!("Client requesting bullet shot");
             }
 
             // Send input packet to host
@@ -254,6 +253,7 @@ impl MultiplayerClient {
                 rotation_delta,
                 thrust_level,
                 convert_to_satellite,
+                shoot_bullet,
             };
 
             if let Ok(bytes) = bincode::serialize(&input_packet) {

@@ -23,6 +23,7 @@ struct ClientInputPacket {
     rotation_delta: f32,  // degrees per frame
     thrust_level: f32,    // 0.0 to 1.0
     convert_to_satellite: bool,
+    shoot_bullet: bool,   // true if client wants to shoot
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -437,6 +438,15 @@ impl MultiplayerHost {
                     new_rocket.set_player_id(Some(input.player_id));
                     self.world.add_rocket(new_rocket);
                     log::info!("Respawned new rocket for player {}", input.player_id);
+                }
+            }
+
+            // Shoot bullet if requested
+            if input.shoot_bullet {
+                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rid) {
+                    log::info!("Player {} fired bullet {}", input.player_id, bullet_id);
+                } else {
+                    log::debug!("Player {} cannot shoot: not enough fuel", input.player_id);
                 }
             }
         }
