@@ -3,10 +3,11 @@
 
 use std::collections::HashMap;
 
-use crate::entities::{GameObject, Planet, Rocket, Satellite};
+use crate::entities::{GameObject, Planet, Rocket, Satellite, Bullet};
 use crate::physics::GravitySimulator;
 use crate::systems::SatelliteManager;
 use crate::game_constants::GameConstants;
+use macroquad::prelude::Vec2;
 
 /// Entity ID type for safe references
 pub type EntityId = usize;
@@ -17,6 +18,7 @@ pub struct World {
     planets: HashMap<EntityId, Planet>,
     rockets: HashMap<EntityId, Rocket>,
     satellites: HashMap<EntityId, Satellite>,
+    bullets: HashMap<EntityId, Bullet>,
 
     // ID generation
     next_id: EntityId,
@@ -37,6 +39,7 @@ impl World {
             planets: HashMap::new(),
             rockets: HashMap::new(),
             satellites: HashMap::new(),
+            bullets: HashMap::new(),
             next_id: 0,
             gravity_simulator: GravitySimulator::new(),
             satellite_manager: SatelliteManager::new(),
@@ -76,6 +79,51 @@ impl World {
         id
     }
 
+    /// Add a bullet and return its ID
+    pub fn add_bullet(&mut self, bullet: Bullet) -> EntityId {
+        let id = self.next_id;
+        self.bullets.insert(id, bullet);
+        self.next_id += 1;
+        id
+    }
+
+    /// Shoot a bullet from a rocket
+    pub fn shoot_bullet_from_rocket(&mut self, rocket_id: EntityId) -> Option<EntityId> {
+        if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+            // Check if rocket has enough fuel (1 unit of mass)
+            if rocket.current_fuel() < 1.0 {
+                return None;
+            }
+
+            // Remove fuel (1 unit becomes the bullet)
+            // Use set_fuel_direct to avoid momentum preservation - the bullet carries the mass/momentum
+            let new_fuel = rocket.current_fuel() - 1.0;
+            rocket.set_fuel_direct(new_fuel);
+
+            // Get rocket's facing direction
+            let rotation = rocket.rotation();
+            let direction = Vec2::new(rotation.sin(), -rotation.cos());
+
+            // Calculate bullet position (spawn at front of rocket)
+            let rocket_size = 10.0; // Approximate rocket size
+            let bullet_position = rocket.position() + direction * (rocket_size + 5.0);
+
+            // Calculate bullet velocity (rocket velocity + extra speed in facing direction)
+            let bullet_velocity = rocket.velocity() + direction * GameConstants::BULLET_SPEED;
+
+            // Apply recoil to rocket (pushes rocket backward when shooting forward)
+            // Recoil opposes the bullet direction, slowing the rocket down
+            let recoil_velocity_change = direction * GameConstants::BULLET_RECOIL_FORCE * GameConstants::BULLET_RECOIL_MULTIPLIER;
+            rocket.set_velocity(rocket.velocity() - recoil_velocity_change);
+
+            // Create and add bullet
+            let bullet = Bullet::new(bullet_position, bullet_velocity);
+            Some(self.add_bullet(bullet))
+        } else {
+            None
+        }
+    }
+
     // === Entity Management with Specific IDs (for save/load) ===
 
     /// Add a planet with a specific ID (for loading snapshots)
@@ -110,6 +158,7 @@ impl World {
         self.planets.clear();
         self.rockets.clear();
         self.satellites.clear();
+        self.bullets.clear();
         self.next_id = 0;
         self.active_rocket_id = None;
     }
@@ -162,6 +211,14 @@ impl World {
         self.satellites.get_mut(&id)
     }
 
+    pub fn get_bullet(&self, id: EntityId) -> Option<&Bullet> {
+        self.bullets.get(&id)
+    }
+
+    pub fn get_bullet_mut(&mut self, id: EntityId) -> Option<&mut Bullet> {
+        self.bullets.get_mut(&id)
+    }
+
     pub fn get_active_rocket(&self) -> Option<&Rocket> {
         self.active_rocket_id
             .and_then(|id| self.rockets.get(&id))
@@ -192,6 +249,10 @@ impl World {
         self.satellites.len()
     }
 
+    pub fn bullet_count(&self) -> usize {
+        self.bullets.len()
+    }
+
     /// Get iterator over all planets
     pub fn planets(&self) -> impl Iterator<Item = &Planet> {
         self.planets.values()
@@ -207,6 +268,11 @@ impl World {
         self.satellites.values()
     }
 
+    /// Get iterator over all bullets
+    pub fn bullets(&self) -> impl Iterator<Item = &Bullet> {
+        self.bullets.values()
+    }
+
     /// Get iterator over all planets with their IDs (for save system)
     pub fn planets_with_ids(&self) -> impl Iterator<Item = (EntityId, &Planet)> {
         self.planets.iter().map(|(id, planet)| (*id, planet))
@@ -220,6 +286,11 @@ impl World {
     /// Get iterator over all satellites with their IDs (for save system)
     pub fn satellites_with_ids(&self) -> impl Iterator<Item = (EntityId, &Satellite)> {
         self.satellites.iter().map(|(id, satellite)| (*id, satellite))
+    }
+
+    /// Get iterator over all bullets with their IDs
+    pub fn bullets_with_ids(&self) -> impl Iterator<Item = (EntityId, &Bullet)> {
+        self.bullets.iter().map(|(id, bullet)| (*id, bullet))
     }
 
     // === Entity Creation Helpers ===
@@ -260,11 +331,14 @@ impl World {
             planet.update(delta_time);
         }
 
-        // Apply gravity to rockets from planets
+        // Apply gravity to rockets from planets (skip landed rockets)
         let planet_refs: Vec<&Planet> = self.planets.values().collect();
         for rocket in self.rockets.values_mut() {
-            self.gravity_simulator
-                .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+            // Don't apply gravity to landed rockets to prevent fake velocity buildup
+            if !rocket.is_landed() {
+                self.gravity_simulator
+                    .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+            }
         }
 
         // Apply rocket-to-rocket gravity (for multiplayer)
@@ -382,6 +456,57 @@ impl World {
             self.satellites.remove(&satellite_id);
         }
 
+        // Apply gravity to bullets from planets (using same method as rockets)
+        {
+            // Create new scope to collect planet refs for bullets
+            let planet_refs_for_bullets: Vec<&Planet> = self.planets.values().collect();
+            for bullet in self.bullets.values_mut() {
+                // Use EXACT same gravity calculation as rockets
+                for planet in &planet_refs_for_bullets {
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        bullet.position(),
+                        bullet.mass(),
+                        planet.position(),
+                        planet.mass(),
+                    );
+                    let acceleration = force / bullet.mass();
+                    bullet.set_velocity(bullet.velocity() + acceleration * delta_time);
+                }
+            }
+        }
+
+        // Update bullet physics
+        for bullet in self.bullets.values_mut() {
+            bullet.update(delta_time);
+        }
+
+        // Remove bullets that have exceeded their lifetime
+        let mut bullets_to_remove = Vec::new();
+        for (bullet_id, bullet) in &self.bullets {
+            if bullet.should_despawn() {
+                bullets_to_remove.push(*bullet_id);
+            }
+        }
+
+        // Check for bullet-planet collisions
+        for (bullet_id, bullet) in &self.bullets {
+            for planet in self.planets.values() {
+                let distance = (bullet.position() - planet.position()).length();
+                // Bullets are small, check collision with planet surface
+                if distance < planet.radius() + bullet.size() {
+                    if !bullets_to_remove.contains(bullet_id) {
+                        bullets_to_remove.push(*bullet_id);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Remove despawned and collided bullets
+        for bullet_id in bullets_to_remove {
+            self.bullets.remove(&bullet_id);
+        }
+
         // Apply planet-to-planet gravity
         // Following C++ pattern: first planet (Earth, ID 0) is pinned and only applies outbound gravity
         let mut planet_ids: Vec<EntityId> = self.planets.keys().copied().collect();
@@ -434,6 +559,11 @@ impl World {
         for satellite in self.satellites.values() {
             satellite.draw();
         }
+
+        // Draw bullets
+        for bullet in self.bullets.values() {
+            bullet.draw();
+        }
     }
 
     // === Utility ===
@@ -442,6 +572,7 @@ impl World {
         self.planets.clear();
         self.rockets.clear();
         self.satellites.clear();
+        self.bullets.clear();
         self.active_rocket_id = None;
     }
 
