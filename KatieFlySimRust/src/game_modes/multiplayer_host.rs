@@ -90,6 +90,19 @@ impl MultiplayerHost {
         }
     }
 
+    /// Get trajectory color for a player (semi-transparent version)
+    fn get_trajectory_color(player_id: u32) -> Color {
+        match player_id {
+            0 => Color::new(1.0, 0.4, 0.4, 0.6), // Red with transparency
+            1 => Color::new(0.4, 0.4, 1.0, 0.6), // Blue with transparency
+            2 => Color::new(0.4, 1.0, 0.4, 0.6), // Green with transparency
+            3 => Color::new(1.0, 1.0, 0.4, 0.6), // Yellow with transparency
+            4 => Color::new(1.0, 0.4, 1.0, 0.6), // Magenta with transparency
+            5 => Color::new(0.4, 1.0, 1.0, 0.6), // Cyan with transparency
+            _ => Color::new(0.8, 0.8, 0.8, 0.6), // Gray with transparency
+        }
+    }
+
     /// Create a new multiplayer host
     pub fn new(window_size: Vec2, port: u16) -> Result<Self, String> {
         // Bind UDP socket
@@ -591,15 +604,17 @@ impl MultiplayerHost {
         // Render world
         self.world.render();
 
-        // Draw trajectory visualization for host's rocket
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                let all_planets: Vec<&Planet> = self.world.planets().collect();
-                self.vehicle_manager.draw_visualizations(
+        // Draw trajectory visualizations for all players' rockets with their colors
+        let all_planets: Vec<&Planet> = self.world.planets().collect();
+        for (id, rocket) in self.world.rockets_with_ids() {
+            if let Some(player_id) = rocket.player_id() {
+                let trajectory_color = Self::get_trajectory_color(player_id);
+                self.vehicle_manager.draw_visualizations_with_color(
                     rocket,
                     &all_planets,
                     self.camera.zoom_level(),
                     self.camera.camera(),
+                    Some(trajectory_color),
                 );
             }
         }
