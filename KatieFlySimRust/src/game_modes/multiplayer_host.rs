@@ -266,12 +266,14 @@ impl MultiplayerHost {
                 }
             }
 
-            // Thrust adjustment
-            if is_key_pressed(self.player_input.decrease_thrust) {
+            // Thrust adjustment (comma to decrease, period to increase, same as singleplayer)
+            if is_key_pressed(KeyCode::Comma) {
                 self.player_state.adjust_thrust(-0.05);
+                log::info!("Host thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
-            if is_key_pressed(self.player_input.increase_thrust) {
+            if is_key_pressed(KeyCode::Period) {
                 self.player_state.adjust_thrust(0.05);
+                log::info!("Host thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
 
             // Apply thrust
