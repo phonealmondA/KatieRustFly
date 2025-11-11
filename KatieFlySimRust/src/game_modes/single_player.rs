@@ -750,38 +750,96 @@ impl SinglePlayerGame {
             let bullet_pos = bullet.position();
             let bullet_vel = bullet.velocity();
 
-            // Predict bullet trajectory (simple prediction with gravity)
+            // Predict bullet trajectory accounting for moving planets (especially Moon)
             let prediction_steps = 100;
             let dt = 0.1; // Time step for prediction
             let mut predicted_positions = Vec::new();
             let mut current_pos = bullet_pos;
             let mut current_vel = bullet_vel;
 
+            // Create mutable copies of planet states (position, velocity, mass, radius)
+            // This allows us to simulate their motion during trajectory prediction
+            let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = self.world.planets()
+                .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+                .collect();
+
+            // Identify Earth (largest planet) for pinning - it doesn't move
+            let earth_index = planet_states
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.3.partial_cmp(&b.3).unwrap())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+
             for _ in 0..prediction_steps {
                 predicted_positions.push(current_pos);
 
-                // Apply gravity from all planets
+                // Step 1: Apply planet-to-planet gravity (e.g., Moon orbiting Earth)
+                if planet_states.len() >= 2 {
+                    for i in 0..planet_states.len() {
+                        if i == earth_index {
+                            continue; // Earth is pinned, doesn't move
+                        }
+
+                        let mut planet_acceleration = Vec2::ZERO;
+
+                        // Calculate gravity from all other planets
+                        for j in 0..planet_states.len() {
+                            if i == j {
+                                continue;
+                            }
+
+                            let (pos_i, _, mass_i, radius_i) = planet_states[i];
+                            let (pos_j, _, mass_j, _) = planet_states[j];
+
+                            let direction = pos_j - pos_i;
+                            let distance = direction.length();
+
+                            if distance > radius_i {
+                                let g = 6.674e-11 * 1e9;
+                                let force_magnitude = (g * mass_i * mass_j) / (distance * distance);
+                                let force_direction = direction / distance;
+                                planet_acceleration += force_direction * (force_magnitude / mass_i);
+                            }
+                        }
+
+                        // Update planet velocity
+                        planet_states[i].1 += planet_acceleration * dt;
+                    }
+                }
+
+                // Step 2: Update planet positions based on their velocities
+                for i in 0..planet_states.len() {
+                    if i != earth_index {
+                        let vel = planet_states[i].1;
+                        planet_states[i].0 += vel * dt;
+                    }
+                }
+
+                // Step 3: Apply gravity from updated planet positions to bullet
                 let mut total_accel = Vec2::ZERO;
-                for planet in self.world.planets() {
-                    let distance = (planet.position() - current_pos).length();
+                for &(planet_pos, _, planet_mass, _) in &planet_states {
+                    let distance = (planet_pos - current_pos).length();
                     if distance > 0.0 {
-                        let direction = (planet.position() - current_pos) / distance;
+                        let direction = (planet_pos - current_pos) / distance;
                         let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
                         let bullet_mass = 1.0; // Bullet mass
-                        let force_magnitude = (g * planet.mass() * bullet_mass) / (distance * distance);
+                        let force_magnitude = (g * planet_mass * bullet_mass) / (distance * distance);
                         let acceleration = direction * (force_magnitude / bullet_mass);
                         total_accel += acceleration;
                     }
                 }
 
+                // Step 4: Update bullet velocity and position
                 current_vel += total_accel * dt;
                 current_pos += current_vel * dt;
 
-                // Stop predicting if bullet would hit a planet
+                // Step 5: Check for collision with planets at their PREDICTED positions
+                // Only stop if bullet will actually hit planet when it arrives at this time
                 let mut hit_planet = false;
-                for planet in self.world.planets() {
-                    let distance = (planet.position() - current_pos).length();
-                    if distance < planet.radius() + 5.0 {
+                for &(planet_pos, _, _, planet_radius) in &planet_states {
+                    let distance = (planet_pos - current_pos).length();
+                    if distance < planet_radius + 5.0 {
                         hit_planet = true;
                         break;
                     }

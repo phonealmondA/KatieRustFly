@@ -330,11 +330,14 @@ impl World {
             planet.update(delta_time);
         }
 
-        // Apply gravity to rockets from planets
+        // Apply gravity to rockets from planets (skip landed rockets)
         let planet_refs: Vec<&Planet> = self.planets.values().collect();
         for rocket in self.rockets.values_mut() {
-            self.gravity_simulator
-                .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+            // Don't apply gravity to landed rockets to prevent fake velocity buildup
+            if !rocket.is_landed() {
+                self.gravity_simulator
+                    .apply_planet_gravity_to_rocket(rocket, &planet_refs, delta_time);
+            }
         }
 
         // Apply rocket-to-rocket gravity (for multiplayer)
