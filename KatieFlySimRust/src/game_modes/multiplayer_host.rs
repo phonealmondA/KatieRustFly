@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entities::{GameObject, Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
-use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite, SavedBullet};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
 use crate::utils::vector_helper;
@@ -219,6 +219,12 @@ impl MultiplayerHost {
         for saved_satellite in save_data.satellites {
             let (id, satellite) = saved_satellite.to_satellite();
             self.world.add_satellite_with_id(id, satellite);
+        }
+
+        // Load bullets with their original IDs
+        for saved_bullet in save_data.bullets {
+            let (id, bullet) = saved_bullet.to_bullet();
+            self.world.add_bullet_with_id(id, bullet);
         }
 
         // Restore active rocket
@@ -550,6 +556,11 @@ impl MultiplayerHost {
         // Save all satellites with their IDs
         save_data.satellites = self.world.satellites_with_ids()
             .map(|(id, satellite)| SavedSatellite::from_satellite(id, satellite))
+            .collect();
+
+        // Save all bullets with their IDs
+        save_data.bullets = self.world.bullets_with_ids()
+            .map(|(id, bullet)| SavedBullet::from_bullet(id, bullet))
             .collect();
 
         // Save player state (host is player 0)

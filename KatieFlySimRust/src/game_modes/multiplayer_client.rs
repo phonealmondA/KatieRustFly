@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entities::{GameObject, Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
-use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite, SavedBullet};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
 
@@ -408,6 +408,12 @@ impl MultiplayerClient {
         for saved_satellite in snapshot.satellites {
             let (id, satellite) = saved_satellite.to_satellite();
             self.world.add_satellite_with_id(id, satellite);
+        }
+
+        // Load bullets with their original IDs
+        for saved_bullet in snapshot.bullets {
+            let (id, bullet) = saved_bullet.to_bullet();
+            self.world.add_bullet_with_id(id, bullet);
         }
 
         // Update our active rocket to the one that belongs to us

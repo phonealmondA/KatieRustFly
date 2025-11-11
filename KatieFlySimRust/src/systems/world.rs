@@ -153,6 +153,15 @@ impl World {
         }
     }
 
+    /// Add a bullet with a specific ID (for loading snapshots)
+    pub fn add_bullet_with_id(&mut self, id: EntityId, bullet: Bullet) {
+        self.bullets.insert(id, bullet);
+        // Update next_id to ensure we don't reuse IDs
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
+    }
+
     /// Clear all entities (for loading snapshots)
     pub fn clear_all_entities(&mut self) {
         self.planets.clear();
