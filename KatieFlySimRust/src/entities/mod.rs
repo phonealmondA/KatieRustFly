@@ -6,6 +6,7 @@ pub mod rocket;
 pub mod satellite;
 pub mod rocket_part;
 pub mod engine;
+pub mod bullet;
 
 // Re-export commonly used items
 pub use game_object::{GameObject, GameObjectData};
@@ -14,3 +15,4 @@ pub use rocket::Rocket;
 pub use satellite::Satellite;
 pub use rocket_part::{RocketPart, RocketPartData};
 pub use engine::Engine;
+pub use bullet::Bullet;

@@ -553,6 +553,17 @@ impl SinglePlayerGame {
                 }
             }
         }
+
+        // Shoot bullet (X key)
+        if is_key_pressed(KeyCode::X) {
+            if let Some(rocket_id) = self.world.active_rocket_id() {
+                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rocket_id) {
+                    log::info!("Bullet {} fired from rocket {}", bullet_id, rocket_id);
+                } else {
+                    log::info!("Cannot shoot: not enough fuel (need 1 unit)");
+                }
+            }
+        }
     }
 
     /// Draw network map popup
@@ -731,6 +742,75 @@ impl SinglePlayerGame {
             // Satellite ID label
             let id_text = format!("{}", sat_id);
             draw_text(&id_text, map_pos.x + 7.0, map_pos.y + 4.0, 12.0, WHITE);
+        }
+
+        // Draw bullet trajectories (red lines showing path)
+        let bullets: Vec<_> = self.world.bullets_with_ids().collect();
+        for (_bullet_id, bullet) in &bullets {
+            let bullet_pos = bullet.position();
+            let bullet_vel = bullet.velocity();
+
+            // Predict bullet trajectory (simple prediction with gravity)
+            let prediction_steps = 100;
+            let dt = 0.1; // Time step for prediction
+            let mut predicted_positions = Vec::new();
+            let mut current_pos = bullet_pos;
+            let mut current_vel = bullet_vel;
+
+            for _ in 0..prediction_steps {
+                predicted_positions.push(current_pos);
+
+                // Apply gravity from all planets
+                let mut total_accel = Vec2::ZERO;
+                for planet in self.world.planets() {
+                    let distance = (planet.position() - current_pos).length();
+                    if distance > 0.0 {
+                        let direction = (planet.position() - current_pos) / distance;
+                        let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
+                        let bullet_mass = 1.0; // Bullet mass
+                        let force_magnitude = (g * planet.mass() * bullet_mass) / (distance * distance);
+                        let acceleration = direction * (force_magnitude / bullet_mass);
+                        total_accel += acceleration;
+                    }
+                }
+
+                current_vel += total_accel * dt;
+                current_pos += current_vel * dt;
+
+                // Stop predicting if bullet would hit a planet
+                let mut hit_planet = false;
+                for planet in self.world.planets() {
+                    let distance = (planet.position() - current_pos).length();
+                    if distance < planet.radius() + 5.0 {
+                        hit_planet = true;
+                        break;
+                    }
+                }
+                if hit_planet {
+                    break;
+                }
+            }
+
+            // Draw red trajectory line
+            for i in 0..(predicted_positions.len() - 1) {
+                let pos1 = predicted_positions[i];
+                let pos2 = predicted_positions[i + 1];
+                let map_pos1 = world_to_map(pos1);
+                let map_pos2 = world_to_map(pos2);
+
+                draw_line(
+                    map_pos1.x,
+                    map_pos1.y,
+                    map_pos2.x,
+                    map_pos2.y,
+                    2.0,
+                    Color::new(1.0, 0.0, 0.0, 0.6), // Red trajectory
+                );
+            }
+
+            // Draw bullet current position as small red dot
+            let bullet_map_pos = world_to_map(bullet_pos);
+            draw_circle(bullet_map_pos.x, bullet_map_pos.y, 3.0, Color::new(1.0, 0.0, 0.0, 1.0));
         }
 
         // Satellite list on the right side of the map
@@ -939,6 +1019,7 @@ impl SinglePlayerGame {
                 ("E", "Zoom out"),
                 ("MOUSE WHEEL", "Zoom"),
                 ("C", "Convert to satellite"),
+                ("X", "Shoot bullet"),
                 ("P", "Pause/Unpause"),
             ];
 
