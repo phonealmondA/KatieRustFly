@@ -143,6 +143,20 @@ impl TrajectoryPredictor {
             position += velocity * time_step;
             time += time_step;
 
+            // Check for collision with planets at their predicted positions
+            let mut hit_planet = false;
+            for &(planet_pos, _, _, planet_radius) in &planet_states {
+                let distance = vector_helper::magnitude(planet_pos - position);
+                // Add small buffer for collision detection
+                if distance < planet_radius + 5.0 {
+                    hit_planet = true;
+                    break;
+                }
+            }
+            if hit_planet {
+                break;
+            }
+
             // Check for self-intersection if requested
             if detect_self_intersection && points.len() > 20 {
                 if self.check_intersection(&points, position) {
@@ -273,6 +287,20 @@ impl TrajectoryPredictor {
             velocity += acceleration * time_step;
             position += velocity * time_step;
             time += time_step;
+
+            // Check for collision with planets at their predicted positions
+            let mut hit_planet = false;
+            for &(planet_pos, _, _, planet_radius) in &planet_states {
+                let distance = vector_helper::magnitude(planet_pos - position);
+                // Add small buffer for collision detection
+                if distance < planet_radius + 5.0 {
+                    hit_planet = true;
+                    break;
+                }
+            }
+            if hit_planet {
+                break;
+            }
 
             // Check for self-intersection if requested
             if detect_self_intersection && points.len() > 20 {
