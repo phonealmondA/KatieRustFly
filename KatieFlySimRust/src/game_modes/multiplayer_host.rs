@@ -305,19 +305,18 @@ impl MultiplayerHost {
                 }
             }
 
-            // Zoom controls
-            if is_key_down(self.player_input.zoom_out) {
-                self.camera.adjust_zoom(1.02);
+            // Zoom controls (Q = zoom in, E = zoom out, same as singleplayer)
+            if is_key_down(KeyCode::Q) {
+                self.camera.adjust_zoom(-0.02); // Zoom in
             }
-            if is_key_down(self.player_input.zoom_in) {
-                self.camera.adjust_zoom(0.98);
+            if is_key_down(KeyCode::E) {
+                self.camera.adjust_zoom(0.02); // Zoom out
             }
 
-            // Mouse wheel zoom
-            let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
-            if mouse_wheel_y != 0.0 {
-                let zoom_factor = if mouse_wheel_y > 0.0 { 0.9 } else { 1.1 };
-                self.camera.adjust_zoom(zoom_factor);
+            // Mouse wheel zoom (same as singleplayer)
+            let mouse_wheel = mouse_wheel().1;
+            if mouse_wheel != 0.0 {
+                self.camera.adjust_zoom(-mouse_wheel * 0.02);
             }
         }
     }
