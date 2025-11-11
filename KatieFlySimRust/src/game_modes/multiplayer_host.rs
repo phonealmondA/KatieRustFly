@@ -252,17 +252,19 @@ impl MultiplayerHost {
 
     fn handle_player_controls(&mut self) {
         if let Some(rocket_id) = self.active_rocket_id {
-            // Rotation
-            if is_key_down(self.player_input.rotate_left) {
-                if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    let rotation_speed = 3.0_f32.to_radians();
-                    rocket.rotate(-rotation_speed);
-                }
+            // Rotation (A/D or Left/Right, same as singleplayer)
+            let mut rotation_delta = 0.0;
+            if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+                rotation_delta = 3.0; // degrees per frame
             }
-            if is_key_down(self.player_input.rotate_right) {
+            if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+                rotation_delta = -3.0;
+            }
+
+            if rotation_delta != 0.0 {
+                let rotation_radians = rotation_delta * std::f32::consts::PI / 180.0;
                 if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    let rotation_speed = 3.0_f32.to_radians();
-                    rocket.rotate(rotation_speed);
+                    rocket.rotate(rotation_radians);
                 }
             }
 
@@ -276,15 +278,19 @@ impl MultiplayerHost {
                 log::info!("Host thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
 
-            // Apply thrust
-            if is_key_down(self.player_input.thrust) {
-                if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    rocket.apply_thrust(self.player_state.selected_thrust_level);
-                }
+            // Apply thrust (SPACE key, same as singleplayer)
+            let thrust_level = if is_key_down(KeyCode::Space) {
+                self.player_state.thrust_level()
+            } else {
+                0.0
+            };
+
+            if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
+                rocket.set_thrust_level(thrust_level);
             }
 
-            // Convert to satellite
-            if is_key_pressed(self.player_input.convert_to_satellite) {
+            // Convert to satellite (C key, same as singleplayer)
+            if is_key_pressed(KeyCode::C) {
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
                     log::info!("Host converted rocket to satellite");
 
