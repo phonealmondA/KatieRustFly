@@ -262,7 +262,6 @@ impl SinglePlayerGame {
                 self.is_paused = false;
             } else if self.show_network_map {
                 self.show_network_map = false;
-                self.is_paused = false;
             } else {
                 return SinglePlayerResult::ReturnToMenu;
             }
@@ -360,7 +359,8 @@ impl SinglePlayerGame {
                 let world_to_map = |world_pos: Vec2| -> Vec2 {
                     let relative = world_pos - earth_pos;
                     let scaled = relative * map_scale;
-                    map_center + scaled
+                    // Flip Y coordinate to fix inverted display
+                    Vec2::new(map_center.x + scaled.x, map_center.y - scaled.y)
                 };
 
                 // Check each satellite
@@ -386,7 +386,6 @@ impl SinglePlayerGame {
                 if mouse_pos.0 < map_x || mouse_pos.0 > map_x + map_size + list_width + 20.0 ||
                    mouse_pos.1 < map_y || mouse_pos.1 > map_y + map_size {
                     self.show_network_map = false;
-                    self.is_paused = false;
                     log::info!("Clicked outside network map, closing");
                 }
             }
@@ -423,7 +422,6 @@ impl SinglePlayerGame {
         }
         if is_key_pressed(KeyCode::Key5) {
             self.show_network_map = !self.show_network_map;
-            self.is_paused = self.show_network_map; // Pause when showing map
             log::info!("Toggled network map: {}", self.show_network_map);
         }
         // Key 0 to toggle all panels
@@ -606,7 +604,8 @@ impl SinglePlayerGame {
         let world_to_map = |world_pos: Vec2| -> Vec2 {
             let relative = world_pos - earth_pos;
             let scaled = relative * map_scale;
-            map_center + scaled
+            // Flip Y coordinate to fix inverted display
+            Vec2::new(map_center.x + scaled.x, map_center.y - scaled.y)
         };
 
         // Draw range rings at 1500 unit intervals from surface
