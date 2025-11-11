@@ -35,6 +35,9 @@ pub struct Rocket {
     landed: bool,
     landed_on_planet_id: Option<usize>,
 
+    // Multiplayer - which player owns this rocket
+    player_id: Option<u32>,
+
     // Rocket parts (engines, etc.)
     parts: Vec<Box<dyn RocketPart>>,
 
@@ -76,6 +79,7 @@ impl Rocket {
             fuel_transfer_rate: 0.0,
             landed: false,
             landed_on_planet_id: None,
+            player_id: None, // Will be set later if needed
             parts,
             show_velocity_vector: false,
             show_trajectory: false,
@@ -83,6 +87,15 @@ impl Rocket {
             trajectory_steps: 50,
             trajectory_time_step: 0.1,
         }
+    }
+
+    // === Player ID (for multiplayer) ===
+    pub fn player_id(&self) -> Option<u32> {
+        self.player_id
+    }
+
+    pub fn set_player_id(&mut self, player_id: Option<u32>) {
+        self.player_id = player_id;
     }
 
     // === Mass System ===

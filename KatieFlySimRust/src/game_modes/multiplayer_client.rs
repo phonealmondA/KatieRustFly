@@ -4,6 +4,7 @@
 use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 
 use crate::entities::{Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
@@ -12,6 +13,15 @@ use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputSt
 use crate::ui::{Camera, GameInfoDisplay};
 
 const KEEPALIVE_INTERVAL: f32 = 5.0; // Send keepalive every 5 seconds
+
+/// Client input packet - sent from client to host
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ClientInputPacket {
+    player_id: u32,
+    rotation_delta: f32,  // degrees per frame
+    thrust_level: f32,    // 0.0 to 1.0
+    convert_to_satellite: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MultiplayerClientResult {
@@ -47,6 +57,19 @@ pub struct MultiplayerClient {
 }
 
 impl MultiplayerClient {
+    /// Get trajectory color for a player (semi-transparent version)
+    fn get_trajectory_color(player_id: u32) -> Color {
+        match player_id {
+            0 => Color::new(1.0, 0.4, 0.4, 0.6), // Red with transparency
+            1 => Color::new(0.4, 0.4, 1.0, 0.6), // Blue with transparency
+            2 => Color::new(0.4, 1.0, 0.4, 0.6), // Green with transparency
+            3 => Color::new(1.0, 1.0, 0.4, 0.6), // Yellow with transparency
+            4 => Color::new(1.0, 0.4, 1.0, 0.6), // Magenta with transparency
+            5 => Color::new(0.4, 1.0, 1.0, 0.6), // Cyan with transparency
+            _ => Color::new(0.8, 0.8, 0.8, 0.6), // Gray with transparency
+        }
+    }
+
     /// Create a new multiplayer client and connect to host
     pub fn new(window_size: Vec2, host_ip: &str, host_port: u16) -> Result<Self, String> {
         // Bind to any available local port
@@ -76,8 +99,8 @@ impl MultiplayerClient {
             game_info: GameInfoDisplay::new(),
 
             player_input: PlayerInput::player1(), // Client uses standard controls
-            player_state: PlayerInputState::new(0), // Will be updated when assigned
-            player_id: 0, // Will be assigned by host
+            player_state: PlayerInputState::new(1), // Temporary, will be updated when assigned
+            player_id: 1, // Temporary, will be assigned by host from snapshot
             active_rocket_id: None,
 
             socket: Arc::new(socket),
@@ -120,72 +143,77 @@ impl MultiplayerClient {
 
     fn handle_player_controls(&mut self) {
         if let Some(rocket_id) = self.active_rocket_id {
-            // Rotation
-            if is_key_down(self.player_input.rotate_left) {
-                if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    let rotation_speed = 3.0_f32.to_radians();
-                    rocket.rotate(-rotation_speed);
-                }
+            // Build input packet from current controls
+            let mut rotation_delta = 0.0;
+            if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+                rotation_delta = 3.0; // degrees per frame
             }
-            if is_key_down(self.player_input.rotate_right) {
+            if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+                rotation_delta = -3.0;
+            }
+
+            // Apply rotation locally for prediction
+            if rotation_delta != 0.0 {
+                let rotation_radians = rotation_delta * std::f32::consts::PI / 180.0;
                 if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    let rotation_speed = 3.0_f32.to_radians();
-                    rocket.rotate(rotation_speed);
+                    rocket.rotate(rotation_radians);
                 }
             }
 
-            // Thrust adjustment
-            if is_key_pressed(self.player_input.decrease_thrust) {
+            // Thrust adjustment (comma to decrease, period to increase)
+            if is_key_pressed(KeyCode::Comma) {
                 self.player_state.adjust_thrust(-0.05);
+                log::info!("Client thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
-            if is_key_pressed(self.player_input.increase_thrust) {
+            if is_key_pressed(KeyCode::Period) {
                 self.player_state.adjust_thrust(0.05);
+                log::info!("Client thrust level: {}%", (self.player_state.thrust_level() * 100.0) as i32);
             }
 
-            // Apply thrust
-            if is_key_down(self.player_input.thrust) {
-                if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
-                    rocket.apply_thrust(self.player_state.selected_thrust_level);
+            // Apply thrust (SPACE key)
+            let thrust_level = if is_key_down(KeyCode::Space) {
+                self.player_state.thrust_level()
+            } else {
+                0.0
+            };
+
+            // Apply thrust locally for prediction
+            if let Some(rocket) = self.world.get_rocket_mut(rocket_id) {
+                rocket.set_thrust_level(thrust_level);
+            }
+
+            // Convert to satellite (C key)
+            let convert_to_satellite = is_key_pressed(KeyCode::C);
+            if convert_to_satellite {
+                log::info!("Client requesting satellite conversion");
+            }
+
+            // Send input packet to host
+            let input_packet = ClientInputPacket {
+                player_id: self.player_id,
+                rotation_delta,
+                thrust_level,
+                convert_to_satellite,
+            };
+
+            if let Ok(bytes) = bincode::serialize(&input_packet) {
+                if let Err(e) = self.socket.send_to(&bytes, self.host_addr) {
+                    log::warn!("Failed to send input packet: {}", e);
                 }
             }
 
-            // Convert to satellite
-            if is_key_pressed(self.player_input.convert_to_satellite) {
-                if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
-                    log::info!("Client converted rocket to satellite");
-
-                    // Spawn new rocket for client
-                    let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-                    let spawn_position = Vec2::new(
-                        GameConstants::MAIN_PLANET_X + spawn_distance,
-                        GameConstants::MAIN_PLANET_Y,
-                    );
-                    let new_rocket = Rocket::new(
-                        spawn_position,
-                        Vec2::new(0.0, 0.0),
-                        Color::from_rgba(100, 100, 255, 255), // Blue for client
-                        GameConstants::ROCKET_BASE_MASS,
-                    );
-                    let new_rocket_id = self.world.add_rocket(new_rocket);
-                    self.active_rocket_id = Some(new_rocket_id);
-                    self.world.set_active_rocket(Some(new_rocket_id));
-                    log::info!("Client respawned new rocket");
-                }
+            // Zoom controls (local only, doesn't affect game state)
+            if is_key_down(KeyCode::Q) {
+                self.camera.adjust_zoom(-0.02); // Zoom in
+            }
+            if is_key_down(KeyCode::E) {
+                self.camera.adjust_zoom(0.02); // Zoom out
             }
 
-            // Zoom controls
-            if is_key_down(self.player_input.zoom_out) {
-                self.camera.adjust_zoom(1.02);
-            }
-            if is_key_down(self.player_input.zoom_in) {
-                self.camera.adjust_zoom(0.98);
-            }
-
-            // Mouse wheel zoom
-            let (_mouse_wheel_x, mouse_wheel_y) = mouse_wheel();
-            if mouse_wheel_y != 0.0 {
-                let zoom_factor = if mouse_wheel_y > 0.0 { 0.9 } else { 1.1 };
-                self.camera.adjust_zoom(zoom_factor);
+            // Mouse wheel zoom (local only)
+            let mouse_wheel = mouse_wheel().1;
+            if mouse_wheel != 0.0 {
+                self.camera.adjust_zoom(-mouse_wheel * 0.02);
             }
         }
     }
@@ -278,10 +306,44 @@ impl MultiplayerClient {
             self.world.add_planet_with_id(id, planet);
         }
 
-        // Load rockets with their original IDs
+        // Load rockets with their original IDs and find ours
+        let mut my_rocket_id: Option<EntityId> = None;
+        let mut highest_player_id: u32 = 0;
+
         for saved_rocket in snapshot.rockets {
             let (id, rocket) = saved_rocket.to_rocket();
+
+            // Track highest player_id
+            if let Some(pid) = rocket.player_id() {
+                if pid > highest_player_id {
+                    highest_player_id = pid;
+                }
+
+                // Check if this rocket belongs to us
+                if pid == self.player_id {
+                    my_rocket_id = Some(id);
+                    log::debug!("Found my rocket (player {}): {:?}", self.player_id, id);
+                }
+            }
+
             self.world.add_rocket_with_id(id, rocket);
+        }
+
+        // If this is our first snapshot and we haven't found our rocket,
+        // we're probably the newest client, so use the highest player_id
+        if my_rocket_id.is_none() && self.active_rocket_id.is_none() && highest_player_id > 0 {
+            self.player_id = highest_player_id;
+            self.player_state = PlayerInputState::new(highest_player_id);
+            log::info!("Assigned player ID from snapshot: {}", highest_player_id);
+
+            // Find the rocket with this player_id
+            for (id, rocket) in self.world.rockets_with_ids() {
+                if rocket.player_id() == Some(highest_player_id) {
+                    my_rocket_id = Some(id);
+                    log::debug!("Found my rocket: {:?}", id);
+                    break;
+                }
+            }
         }
 
         // Load satellites with their original IDs
@@ -290,9 +352,15 @@ impl MultiplayerClient {
             self.world.add_satellite_with_id(id, satellite);
         }
 
-        // Update our active rocket from snapshot
-        self.active_rocket_id = snapshot.active_rocket_id;
-        self.world.set_active_rocket(snapshot.active_rocket_id);
+        // Update our active rocket to the one that belongs to us
+        if let Some(rocket_id) = my_rocket_id {
+            self.active_rocket_id = Some(rocket_id);
+            self.world.set_active_rocket(Some(rocket_id));
+        } else if self.active_rocket_id.is_none() {
+            // If we haven't found our rocket yet, this might be the first snapshot
+            // before the host has spawned our rocket. Keep waiting.
+            log::debug!("Haven't found my rocket yet (player {}), waiting for host to spawn it", self.player_id);
+        }
 
         // Note: We keep our local camera instead of using snapshot camera
         // This gives the client freedom to look around independently
@@ -306,15 +374,17 @@ impl MultiplayerClient {
         // Render world
         self.world.render();
 
-        // Draw trajectory visualization for client's rocket
-        if let Some(rocket_id) = self.active_rocket_id {
-            if let Some(rocket) = self.world.get_rocket(rocket_id) {
-                let all_planets: Vec<&Planet> = self.world.planets().collect();
-                self.vehicle_manager.draw_visualizations(
+        // Draw trajectory visualizations for all players' rockets with their colors
+        let all_planets: Vec<&Planet> = self.world.planets().collect();
+        for (id, rocket) in self.world.rockets_with_ids() {
+            if let Some(player_id) = rocket.player_id() {
+                let trajectory_color = Self::get_trajectory_color(player_id);
+                self.vehicle_manager.draw_visualizations_with_color(
                     rocket,
                     &all_planets,
                     self.camera.zoom_level(),
                     self.camera.camera(),
+                    Some(trajectory_color),
                 );
             }
         }

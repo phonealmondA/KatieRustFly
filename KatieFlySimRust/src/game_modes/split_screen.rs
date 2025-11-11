@@ -49,6 +49,7 @@ pub struct SplitScreenGame {
     // Camera management
     camera_mode: CameraMode,
     camera_focus_duration: f32,  // 10 seconds
+    manual_zoom_mode: bool,  // true when user manually zooms, disables auto-zoom
 
     // Save/load
     current_save_name: Option<String>,
@@ -88,6 +89,7 @@ impl SplitScreenGame {
 
             camera_mode: CameraMode::ShowBoth,
             camera_focus_duration: 10.0,
+            manual_zoom_mode: false,
 
             current_save_name: None,
             last_auto_save: 0.0,
@@ -259,10 +261,12 @@ impl SplitScreenGame {
                         let midpoint = (r1.position() + r2.position()) / 2.0;
                         self.camera.set_center(midpoint);
 
-                        // Calculate distance and set zoom to fit both
-                        let distance = r1.position().distance(r2.position());
-                        let zoom = (distance / 300.0).max(1.0).min(10.0);
-                        self.camera.set_target_zoom(zoom);
+                        // Only auto-calculate zoom if not in manual zoom mode
+                        if !self.manual_zoom_mode {
+                            let distance = r1.position().distance(r2.position());
+                            let zoom = (distance / 300.0).max(1.0).min(10.0);
+                            self.camera.set_target_zoom(zoom);
+                        }
                     }
                 }
             }
@@ -329,35 +333,36 @@ impl SplitScreenGame {
             self.player2_info_display.hide_all_panels();
         }
 
-        // Handle scroll wheel zoom - switches to ShowBoth mode and applies zoom
+        // Mouse wheel zoom - always works, switches to ShowBoth mode with manual zoom
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
             self.camera_mode = CameraMode::ShowBoth;
+            self.manual_zoom_mode = true;
             self.camera.adjust_zoom(-mouse_wheel * 0.02);
         }
 
-        // Handle keyboard zoom based on camera mode
+        // Keyboard zoom controls - only work when camera is focused on that player
         match self.camera_mode {
             CameraMode::FocusPlayer1(_) => {
-                // Player 1 focused: use Q+E zoom controls
+                // Player 1 focused: Q = zoom in, E = zoom out
                 if is_key_down(KeyCode::Q) {
-                    self.camera.adjust_zoom(-0.02); // Q = zoom in
+                    self.camera.adjust_zoom(-0.02);
                 }
                 if is_key_down(KeyCode::E) {
-                    self.camera.adjust_zoom(0.02); // E = zoom out
+                    self.camera.adjust_zoom(0.02);
                 }
             }
             CameraMode::FocusPlayer2(_) => {
-                // Player 2 focused: use /+' zoom controls
+                // Player 2 focused: / = zoom in, ' = zoom out
                 if is_key_down(KeyCode::Slash) {
-                    self.camera.adjust_zoom(-0.02); // / = zoom in
+                    self.camera.adjust_zoom(-0.02);
                 }
                 if is_key_down(KeyCode::Apostrophe) {
-                    self.camera.adjust_zoom(0.02); // ' = zoom out
+                    self.camera.adjust_zoom(0.02);
                 }
             }
             CameraMode::ShowBoth => {
-                // No keyboard zoom when showing both players
+                // No keyboard zoom in ShowBoth mode
             }
         }
 
@@ -365,13 +370,15 @@ impl SplitScreenGame {
             return SplitScreenResult::Continue;
         }
 
-        // Handle camera focus keys
+        // Handle camera focus keys - disable manual zoom mode to re-enable auto-zoom
         if self.player1_input.just_focused_camera() {
             self.camera_mode = CameraMode::FocusPlayer1((self.camera_focus_duration * 10.0) as u32);
+            self.manual_zoom_mode = false;
             log::info!("Camera focused on Player 1");
         }
         if self.player2_input.just_focused_camera() {
             self.camera_mode = CameraMode::FocusPlayer2((self.camera_focus_duration * 10.0) as u32);
+            self.manual_zoom_mode = false;
             log::info!("Camera focused on Player 2");
         }
 
@@ -639,8 +646,8 @@ impl SplitScreenGame {
             ("Z", "Decrease Thrust", "COMMA"),
             ("X", "Increase Thrust", "PERIOD"),
             ("C", "Convert to Satellite", "]"),
-            ("Q", "Zoom Out", "/"),
-            ("E", "Zoom In", "'"),
+            ("Q", "Zoom In", "/"),
+            ("E", "Zoom Out", "'"),
             ("R", "Focus Camera (10s)", ";"),
         ];
 
