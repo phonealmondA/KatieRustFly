@@ -471,7 +471,8 @@ impl World {
                         let g = 6.674e-11 * 1e9; // Gravitational constant (scaled)
                         let force_magnitude = (g * planet.mass() * bullet.mass()) / (distance * distance);
                         let acceleration = direction * (force_magnitude / bullet.mass());
-                        bullet.set_velocity(bullet.velocity() + acceleration * delta_time);
+                        // TEMPORARY FIX: Negate acceleration to test if this fixes the repulsion
+                        bullet.set_velocity(bullet.velocity() - acceleration * delta_time);
                     }
                 }
             }
