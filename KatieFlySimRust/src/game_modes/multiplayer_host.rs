@@ -462,6 +462,11 @@ impl MultiplayerHost {
                     log::debug!("Player {} cannot shoot: not enough fuel", input.player_id);
                 }
             }
+
+            // Quick save if requested (F5 key)
+            if input.save_requested {
+                self.quick_save(input.player_id);
+            }
         }
     }
 
@@ -510,6 +515,14 @@ impl MultiplayerHost {
             }
         }
         self.camera.update(delta_time);
+
+        // Update save celebration timer
+        if self.save_celebration_timer > 0.0 {
+            self.save_celebration_timer -= delta_time;
+            if self.save_celebration_timer <= 0.0 {
+                self.save_celebration_player_id = None;
+            }
+        }
 
         // Update snapshot broadcast timer
         self.snapshot_timer += delta_time;
@@ -663,13 +676,32 @@ impl MultiplayerHost {
 
         let save_data = self.create_snapshot();
 
-        match save_data.save_to_file(&save_name) {
+        match save_data.save_to_multi_file(&save_name) {
             Ok(_) => {
-                log::info!("Game saved: {}", save_name);
+                log::info!("Multiplayer game saved: {}", save_name);
                 self.current_save_name = Some(save_name);
             }
             Err(e) => {
-                log::error!("Failed to save game: {}", e);
+                log::error!("Failed to save multiplayer game: {}", e);
+            }
+        }
+    }
+
+    /// Quick save triggered by F5 key - saves and shows "what a save!!" celebration
+    fn quick_save(&mut self, player_id: u32) {
+        let save_data = self.create_snapshot();
+
+        match save_data.save_to_multi_file("quicksave") {
+            Ok(_) => {
+                log::info!("Quick save successful (triggered by player {})", player_id);
+                self.current_save_name = Some("quicksave".to_string());
+
+                // Trigger save celebration
+                self.save_celebration_player_id = Some(player_id);
+                self.save_celebration_timer = 5.0; // Show for 5 seconds
+            }
+            Err(e) => {
+                log::error!("Failed to quick save: {}", e);
             }
         }
     }
@@ -1092,6 +1124,40 @@ impl MultiplayerHost {
                     self.camera.camera(),
                     Some(trajectory_color),
                 );
+            }
+        }
+
+        // Draw "what a save!!" celebration text above player who triggered save
+        if let Some(player_id) = self.save_celebration_player_id {
+            // Find the rocket belonging to this player
+            for (_id, rocket) in self.world.rockets_with_ids() {
+                if rocket.player_id() == Some(player_id) {
+                    let rocket_pos = rocket.position();
+                    let text = "what a save!!";
+                    let text_size = 30.0;
+                    let text_offset_y = -80.0; // Above rocket
+
+                    // Calculate text dimensions for centering
+                    let text_dims = measure_text(text, None, text_size as u16, 1.0);
+
+                    // Draw text with outline for visibility
+                    let text_x = rocket_pos.x - text_dims.width / 2.0;
+                    let text_y = rocket_pos.y + text_offset_y;
+
+                    // Draw shadow/outline
+                    for dx in &[-2.0, 0.0, 2.0] {
+                        for dy in &[-2.0, 0.0, 2.0] {
+                            if *dx != 0.0 || *dy != 0.0 {
+                                draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                            }
+                        }
+                    }
+
+                    // Draw main text (yellow/gold color)
+                    draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+
+                    break; // Only draw for one rocket
+                }
             }
         }
 

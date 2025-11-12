@@ -23,6 +23,7 @@ struct ClientInputPacket {
     thrust_level: f32,    // 0.0 to 1.0
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
+    save_requested: bool, // true if client pressed F5 (quick save)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,6 +62,10 @@ pub struct MultiplayerClient {
     // Network map view
     show_network_map: bool,
     marked_satellites: HashSet<EntityId>,
+
+    // Save celebration (F5 quick save)
+    save_celebration_player_id: Option<u32>, // Which player triggered the save
+    save_celebration_timer: f32,              // Time remaining for "what a save!!" text
 }
 
 impl MultiplayerClient {
@@ -148,6 +153,9 @@ impl MultiplayerClient {
 
             show_network_map: false,
             marked_satellites: HashSet::new(),
+
+            save_celebration_player_id: None,
+            save_celebration_timer: 0.0,
         })
     }
 
@@ -211,6 +219,10 @@ impl MultiplayerClient {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
 
+        // F5 - quick save (sends request to host)
+        // Note: F5 will be sent to host via input packet in handle_player_controls()
+        // Celebration will be triggered when host processes it
+
         // Only process game controls if not paused
         if !self.paused {
             self.handle_player_controls();
@@ -273,6 +285,15 @@ impl MultiplayerClient {
                 log::info!("Client requesting bullet shot");
             }
 
+            // Quick save (F5 key) - sends request to host
+            let save_requested = is_key_pressed(KeyCode::F5);
+            if save_requested {
+                log::info!("Client requesting quick save (F5)");
+                // Trigger celebration locally immediately
+                self.save_celebration_player_id = Some(self.player_id);
+                self.save_celebration_timer = 5.0;
+            }
+
             // Send input packet to host
             let input_packet = ClientInputPacket {
                 player_id: self.player_id,
@@ -280,6 +301,7 @@ impl MultiplayerClient {
                 thrust_level,
                 convert_to_satellite,
                 shoot_bullet,
+                save_requested,
             };
 
             if let Ok(bytes) = bincode::serialize(&input_packet) {
@@ -352,6 +374,14 @@ impl MultiplayerClient {
             }
 
             log::info!("Respawned new rocket {} for player {}", new_rocket_id, player_id);
+        }
+
+        // Update save celebration timer
+        if self.save_celebration_timer > 0.0 {
+            self.save_celebration_timer -= delta_time;
+            if self.save_celebration_timer <= 0.0 {
+                self.save_celebration_player_id = None;
+            }
         }
 
         // Update camera to follow client rocket
@@ -899,6 +929,40 @@ impl MultiplayerClient {
                     self.camera.camera(),
                     Some(trajectory_color),
                 );
+            }
+        }
+
+        // Draw "what a save!!" celebration text above player who triggered save
+        if let Some(player_id) = self.save_celebration_player_id {
+            // Find the rocket belonging to this player
+            for (_id, rocket) in self.world.rockets_with_ids() {
+                if rocket.player_id() == Some(player_id) {
+                    let rocket_pos = rocket.position();
+                    let text = "what a save!!";
+                    let text_size = 30.0;
+                    let text_offset_y = -80.0; // Above rocket
+
+                    // Calculate text dimensions for centering
+                    let text_dims = measure_text(text, None, text_size as u16, 1.0);
+
+                    // Draw text with outline for visibility
+                    let text_x = rocket_pos.x - text_dims.width / 2.0;
+                    let text_y = rocket_pos.y + text_offset_y;
+
+                    // Draw shadow/outline
+                    for dx in &[-2.0, 0.0, 2.0] {
+                        for dy in &[-2.0, 0.0, 2.0] {
+                            if *dx != 0.0 || *dy != 0.0 {
+                                draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                            }
+                        }
+                    }
+
+                    // Draw main text (yellow/gold color)
+                    draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+
+                    break; // Only draw for one rocket
+                }
             }
         }
 

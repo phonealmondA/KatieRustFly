@@ -17,6 +17,7 @@ use katie_fly_sim_rust::menus::{
     MultiplayerMenu, MultiplayerMenuResult,
     OnlineMultiplayerMenu, OnlineMultiplayerMenuResult,
     OnlineHostMenu, OnlineHostMenuResult,
+    MultiplayerSavesMenu, MultiplayerSavesMenuResult,
     OnlineJoinMenu, OnlineJoinMenuResult,
 };
 use katie_fly_sim_rust::save_system::GameSaveData;
@@ -56,6 +57,7 @@ async fn main() {
     let mut multiplayer_menu = MultiplayerMenu::new(window_size);
     let mut online_multiplayer_menu = OnlineMultiplayerMenu::new(window_size);
     let mut online_host_menu = OnlineHostMenu::new(window_size);
+    let mut multiplayer_saves_menu = MultiplayerSavesMenu::new(window_size);
     let mut online_join_menu = OnlineJoinMenu::new(window_size);
     let mut single_player_game: Option<SinglePlayerGame> = None;
     let mut split_screen_game: Option<SplitScreenGame> = None;
@@ -203,8 +205,9 @@ async fn main() {
                 let result = online_multiplayer_menu.update();
                 match result {
                     OnlineMultiplayerMenuResult::Host => {
-                        log::info!("Host selected - showing host menu");
-                        game_state = GameState::OnlineHostMenu;
+                        log::info!("Host selected - showing multiplayer saves menu");
+                        game_state = GameState::MultiplayerSavesMenu;
+                        multiplayer_saves_menu.refresh_saves();
                     }
                     OnlineMultiplayerMenuResult::Join => {
                         log::info!("Join selected - showing join menu");
@@ -221,8 +224,24 @@ async fn main() {
             GameState::OnlineHostMenu => {
                 let result = online_host_menu.update();
                 match result {
-                    OnlineHostMenuResult::StartHost(port) => {
-                        log::info!("Starting multiplayer host on port {}", port);
+                    OnlineHostMenuResult::StartHost(_port) => {
+                        log::info!("Proceeding to multiplayer saves menu");
+                        game_state = GameState::MultiplayerSavesMenu;
+                        multiplayer_saves_menu.refresh_saves();
+                    }
+                    OnlineHostMenuResult::Back => {
+                        log::info!("Returning to online multiplayer menu from host menu");
+                        game_state = GameState::OnlineMultiplayerMenu;
+                    }
+                    OnlineHostMenuResult::None => {}
+                }
+            }
+
+            GameState::MultiplayerSavesMenu => {
+                let result = multiplayer_saves_menu.update();
+                match result {
+                    MultiplayerSavesMenuResult::NewGame(port) => {
+                        log::info!("Starting new multiplayer game on port {}", port);
                         match MultiplayerHost::new(window_size, port) {
                             Ok(mut host) => {
                                 host.initialize_new_game();
@@ -235,11 +254,33 @@ async fn main() {
                             }
                         }
                     }
-                    OnlineHostMenuResult::Back => {
-                        log::info!("Returning to online multiplayer menu from host menu");
+                    MultiplayerSavesMenuResult::LoadGame(save_name, port) => {
+                        log::info!("Loading multiplayer game: {} on port {}", save_name, port);
+                        match GameSaveData::load_from_multi_file(&save_name) {
+                            Ok(save_data) => {
+                                match MultiplayerHost::new(window_size, port) {
+                                    Ok(mut host) => {
+                                        host.load_from_save(save_data, save_name);
+                                        multiplayer_host = Some(host);
+                                        game_state = GameState::MultiplayerHost;
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to start host: {}", e);
+                                        // Stay in menu
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to load multiplayer save: {}", e);
+                                // Stay in menu
+                            }
+                        }
+                    }
+                    MultiplayerSavesMenuResult::Back => {
+                        log::info!("Returning to online multiplayer menu from saves");
                         game_state = GameState::OnlineMultiplayerMenu;
                     }
-                    OnlineHostMenuResult::None => {}
+                    MultiplayerSavesMenuResult::None => {}
                 }
             }
 
@@ -344,6 +385,10 @@ async fn main() {
 
             GameState::OnlineHostMenu => {
                 online_host_menu.draw();
+            }
+
+            GameState::MultiplayerSavesMenu => {
+                multiplayer_saves_menu.draw();
             }
 
             GameState::OnlineJoinMenu => {
