@@ -81,17 +81,15 @@ impl SinglePlayerGame {
         self.game_time = 0.0;
 
         // Create main planet (like Earth)
-        let mut main_planet = Planet::new(
+        let main_planet = Planet::new(
             Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y),
             GameConstants::MAIN_PLANET_RADIUS,
             GameConstants::MAIN_PLANET_MASS,
             BLUE,
         );
-        // Calculate radius from mass to ensure consistency with mass-depletion system
-        main_planet.update_radius_from_mass();
         log::info!("Main planet: pos=({}, {}), radius={}, mass={}",
             GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y,
-            main_planet.radius(), GameConstants::MAIN_PLANET_MASS);
+            GameConstants::MAIN_PLANET_RADIUS, GameConstants::MAIN_PLANET_MASS);
         self.world.add_planet(main_planet);
 
         // Create secondary planet (like Moon)
@@ -111,9 +109,6 @@ impl SinglePlayerGame {
             GameConstants::SECONDARY_PLANET_MASS,
             Color::from_rgba(150, 150, 150, 255),
         );
-
-        // Calculate radius from mass to ensure consistency with mass-depletion system
-        secondary_planet.update_radius_from_mass();
 
         // Set orbital velocity for secondary planet
         secondary_planet.set_velocity(Vec2::new(
@@ -1051,10 +1046,18 @@ impl SinglePlayerGame {
         use crate::systems::ReferenceBody;
         let reference_body = self.vehicle_manager.visualization().reference_body;
 
-        // Use direct index: planets[0] = Moon, planets[1] = Earth
+        // Find planets by mass (not array index) to handle HashMap unpredictable ordering
+        // Earth has mass ~198M (large), Moon has mass ~11M (small)
+        const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
         let selected_planet = match reference_body {
-            ReferenceBody::Earth => all_planets.get(1).copied(),
-            ReferenceBody::Moon => all_planets.get(0).copied(),
+            ReferenceBody::Earth => {
+                // Find planet with mass > threshold (Earth)
+                all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
+            },
+            ReferenceBody::Moon => {
+                // Find planet with mass < threshold (Moon)
+                all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
+            },
         };
 
         self.info_display.update_all_panels(

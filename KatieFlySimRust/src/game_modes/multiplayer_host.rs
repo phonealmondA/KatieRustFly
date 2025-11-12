@@ -179,14 +179,12 @@ impl MultiplayerHost {
         self.world.clear_all_entities();
 
         // Create main planet (Earth)
-        let mut main_planet = Planet::new(
+        let main_planet = Planet::new(
             Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y),
             GameConstants::MAIN_PLANET_RADIUS,
             GameConstants::MAIN_PLANET_MASS,
             BLUE,
         );
-        // Calculate radius from mass to ensure consistency with mass-depletion system
-        main_planet.update_radius_from_mass();
         self.world.add_planet(main_planet);
 
         // Create secondary planet (Moon) - match single player configuration
@@ -201,8 +199,6 @@ impl MultiplayerHost {
             GameConstants::SECONDARY_PLANET_MASS,
             Color::from_rgba(150, 150, 150, 255),
         );
-        // Calculate radius from mass to ensure consistency with mass-depletion system
-        secondary_planet.update_radius_from_mass();
         secondary_planet.set_velocity(Vec2::new(0.0, -moon_velocity));
         self.world.add_planet(secondary_planet);
 
