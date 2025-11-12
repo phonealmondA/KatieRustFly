@@ -1127,39 +1127,15 @@ impl MultiplayerHost {
             }
         }
 
-        // Draw "what a save!!" celebration text above player who triggered save
-        if let Some(player_id) = self.save_celebration_player_id {
+        // Store celebration rocket position for screen-space rendering
+        let celebration_screen_pos = if let Some(player_id) = self.save_celebration_player_id {
             // Find the rocket belonging to this player
-            for (_id, rocket) in self.world.rockets_with_ids() {
-                if rocket.player_id() == Some(player_id) {
-                    let rocket_pos = rocket.position();
-                    let text = "what a save!!";
-                    let text_size = 30.0;
-                    let text_offset_y = -80.0; // Above rocket
-
-                    // Calculate text dimensions for centering
-                    let text_dims = measure_text(text, None, text_size as u16, 1.0);
-
-                    // Draw text with outline for visibility
-                    let text_x = rocket_pos.x - text_dims.width / 2.0;
-                    let text_y = rocket_pos.y + text_offset_y;
-
-                    // Draw shadow/outline
-                    for dx in &[-2.0, 0.0, 2.0] {
-                        for dy in &[-2.0, 0.0, 2.0] {
-                            if *dx != 0.0 || *dy != 0.0 {
-                                draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
-                            }
-                        }
-                    }
-
-                    // Draw main text (yellow/gold color)
-                    draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
-
-                    break; // Only draw for one rocket
-                }
-            }
-        }
+            self.world.rockets_with_ids()
+                .find(|(_id, rocket)| rocket.player_id() == Some(player_id))
+                .map(|(_id, rocket)| self.camera.world_to_screen(rocket.position()))
+        } else {
+            None
+        };
 
         // Reset to default camera for UI
         set_default_camera();
@@ -1211,6 +1187,30 @@ impl MultiplayerHost {
                 40.0,
                 YELLOW,
             );
+        }
+
+        // Draw "what a save!!" celebration text in screen space
+        if let Some(screen_pos) = celebration_screen_pos {
+            let text = "what a save!!";
+            let text_size = 30.0;
+            let text_offset_y = -80.0; // Above rocket (in screen space, negative is up)
+
+            // Calculate text dimensions for centering
+            let text_dims = measure_text(text, None, text_size as u16, 1.0);
+            let text_x = screen_pos.x - text_dims.width / 2.0;
+            let text_y = screen_pos.y + text_offset_y;
+
+            // Draw shadow/outline
+            for dx in &[-2.0, 0.0, 2.0] {
+                for dy in &[-2.0, 0.0, 2.0] {
+                    if *dx != 0.0 || *dy != 0.0 {
+                        draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                    }
+                }
+            }
+
+            // Draw main text (yellow/gold color)
+            draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
         }
 
         // Draw controls popup if showing
