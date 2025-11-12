@@ -66,6 +66,9 @@ impl OnlineHostMenu {
 
         // Handle text input
         if let Some(key) = get_last_key_pressed() {
+            // Check for letter keys first (without borrowing)
+            let letter_char = Self::key_to_char_static(key);
+
             let input = match self.active_field {
                 InputField::Name => &mut self.name_input,
                 InputField::Port => &mut self.port_input,
@@ -92,7 +95,7 @@ impl OnlineHostMenu {
                 }
                 // Letter keys (only for name field)
                 _ if matches!(self.active_field, InputField::Name) => {
-                    if let Some(ch) = self.key_to_char(key) {
+                    if let Some(ch) = letter_char {
                         input.push(ch);
                     }
                 }
@@ -138,7 +141,7 @@ impl OnlineHostMenu {
         OnlineHostMenuResult::None
     }
 
-    fn key_to_char(&self, key: KeyCode) -> Option<char> {
+    fn key_to_char_static(key: KeyCode) -> Option<char> {
         match key {
             KeyCode::A => Some('A'),
             KeyCode::B => Some('B'),

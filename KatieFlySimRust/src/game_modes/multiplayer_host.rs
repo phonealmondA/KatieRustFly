@@ -632,11 +632,18 @@ impl MultiplayerHost {
                         let player_id = self.next_player_id;
                         self.next_player_id += 1;
 
+                        // TODO: Receive actual player name from client in JOIN packet
+                        let player_name = format!("Player {}", player_id);
+
                         clients.insert(src_addr, ConnectedClient {
                             addr: src_addr,
                             player_id,
                             last_seen: get_time(),
+                            player_name: player_name.clone(),
                         });
+
+                        // Add player name to the names map
+                        self.player_names.insert(player_id, player_name);
 
                         log::info!("New client connected: {} assigned player_id {}", src_addr, player_id);
 
@@ -906,9 +913,11 @@ impl MultiplayerHost {
             draw_circle(map_pos.x, map_pos.y, rocket_size, player_color);
             draw_circle_lines(map_pos.x, map_pos.y, rocket_size, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
 
-            // Label
+            // Label (show player name if available, otherwise P{id})
             if let Some(player_id) = rocket.player_id() {
-                let label = format!("P{}", player_id);
+                let label = self.player_names.get(&player_id)
+                    .map(|name| name.clone())
+                    .unwrap_or_else(|| format!("P{}", player_id));
                 draw_text(&label, map_pos.x - 10.0, map_pos.y - 10.0, 12.0, WHITE);
             }
         }
