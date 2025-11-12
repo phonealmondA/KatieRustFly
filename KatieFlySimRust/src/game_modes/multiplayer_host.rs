@@ -464,6 +464,32 @@ impl MultiplayerHost {
         // Update physics
         self.world.update(delta_time);
 
+        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        let destroyed_rockets = self.world.take_destroyed_rockets();
+        for destroyed in destroyed_rockets {
+            let player_id = destroyed.player_id.unwrap_or(0);
+            log::info!("Player {} rocket destroyed by bullet, respawning", player_id);
+
+            // Spawn new rocket for this player (same as 'C' key respawn logic)
+            let spawn_position = Self::calculate_spawn_position(player_id);
+            let mut new_rocket = Rocket::new(
+                spawn_position,
+                Vec2::new(0.0, 0.0),
+                Self::get_player_color(player_id),
+                GameConstants::ROCKET_BASE_MASS,
+            );
+            new_rocket.set_player_id(Some(player_id));
+            let new_rocket_id = self.world.add_rocket(new_rocket);
+
+            // If this was the host's rocket (player 0), update active_rocket_id
+            if player_id == 0 {
+                self.active_rocket_id = Some(new_rocket_id);
+                self.world.set_active_rocket(Some(new_rocket_id));
+            }
+
+            log::info!("Respawned new rocket {} for player {}", new_rocket_id, player_id);
+        }
+
         // Update camera to follow host rocket
         if let Some(rocket_id) = self.active_rocket_id {
             if let Some(rocket) = self.world.get_rocket(rocket_id) {

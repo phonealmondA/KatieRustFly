@@ -12,6 +12,14 @@ use macroquad::prelude::Vec2;
 /// Entity ID type for safe references
 pub type EntityId = usize;
 
+/// Info about a rocket that was destroyed (for respawning)
+#[derive(Debug, Clone)]
+pub struct DestroyedRocketInfo {
+    pub rocket_id: EntityId,
+    pub player_id: Option<u32>,
+    pub color: macroquad::prelude::Color,
+}
+
 /// World manages all game entities using Entity IDs
 pub struct World {
     // Entity storage
@@ -31,6 +39,9 @@ pub struct World {
 
     // Active player rocket (for single player)
     active_rocket_id: Option<EntityId>,
+
+    // Rockets destroyed this frame (to be respawned by game mode)
+    destroyed_rockets: Vec<DestroyedRocketInfo>,
 }
 
 impl World {
@@ -44,7 +55,14 @@ impl World {
             gravity_simulator: GravitySimulator::new(),
             satellite_manager: SatelliteManager::new(),
             active_rocket_id: None,
+            destroyed_rockets: Vec::new(),
         }
+    }
+
+    /// Get and clear the list of rockets destroyed this frame
+    /// Game modes should call this after update() to handle respawning
+    pub fn take_destroyed_rockets(&mut self) -> Vec<DestroyedRocketInfo> {
+        std::mem::take(&mut self.destroyed_rockets)
     }
 
     // === Entity Management ===
@@ -569,7 +587,7 @@ impl World {
             log::info!("Satellite {} destroyed by bullet", satellite_id);
         }
 
-        // Respawn rockets hit by bullets
+        // Handle rockets hit by bullets
         for rocket_id in rockets_to_respawn {
             // Get rocket info before removing
             let (player_id, color) = if let Some(rocket) = self.rockets.get(&rocket_id) {
@@ -586,24 +604,14 @@ impl World {
                 self.active_rocket_id = None;
             }
 
-            log::info!("Rocket {} destroyed by bullet, respawning player", rocket_id);
+            log::info!("Rocket {} destroyed by bullet", rocket_id);
 
-            // Spawn new rocket for this player at origin
-            let mut new_rocket = Rocket::new(
-                Vec2::new(0.0, 200.0), // Spawn slightly above origin
-                Vec2::new(0.0, 0.0),   // No initial velocity
-                color,                  // Keep same color
-                GameConstants::ROCKET_BASE_MASS,
-            );
-            new_rocket.set_player_id(player_id); // Keep same player ID
-            let new_rocket_id = self.add_rocket(new_rocket);
-
-            // If this was the active rocket, make the new one active
-            if self.active_rocket_id.is_none() {
-                self.active_rocket_id = Some(new_rocket_id);
-            }
-
-            log::info!("Respawned new rocket {} for player {:?}", new_rocket_id, player_id);
+            // Add to destroyed rockets list so game mode can handle respawn
+            self.destroyed_rockets.push(DestroyedRocketInfo {
+                rocket_id,
+                player_id,
+                color,
+            });
         }
 
         // Apply planet-to-planet gravity
