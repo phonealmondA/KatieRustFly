@@ -806,19 +806,26 @@ impl World {
 
     /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
     pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) -> bool {
+        log::info!("=== REFUEL CALLED ===");
+
         // Get rocket reference to check position and fuel status
         let rocket = match self.rockets.get(&rocket_id) {
             Some(r) => r,
-            None => return false,
+            None => {
+                log::info!("No rocket found");
+                return false;
+            }
         };
 
         // Skip if rocket is already full
         if rocket.current_fuel() >= rocket.max_fuel() {
+            log::info!("Rocket is full");
             return false;
         }
 
         let rocket_pos = rocket.position();
         let fuel_needed = rocket.max_fuel() - rocket.current_fuel();
+        log::info!("Rocket needs {} fuel", fuel_needed);
 
         // Find nearest planet that can provide fuel
         let mut nearest_planet: Option<(EntityId, f32)> = None;
@@ -834,6 +841,8 @@ impl World {
             let distance = (rocket_pos - planet.position()).length();
             let collection_range = planet.fuel_collection_range();
 
+            log::info!("Planet {} distance: {}, range: {}", planet_id, distance, collection_range);
+
             if distance <= collection_range && distance < min_distance {
                 min_distance = distance;
                 nearest_planet = Some((*planet_id, distance));
@@ -842,14 +851,19 @@ impl World {
 
         // If found a planet in range, transfer fuel
         if let Some((nearest_planet_id, _distance)) = nearest_planet {
+            log::info!("Found planet {} in range", nearest_planet_id);
+
             // Calculate base transfer amount (use FUEL_COLLECTION_RATE for planets)
             let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
             let desired_transfer = transfer_rate.min(fuel_needed);
 
             // Calculate safe transfer amount (don't deplete planet below minimum viable mass)
             let planet = self.planets.get(&nearest_planet_id).unwrap();
+            let old_mass = planet.mass();
             let max_safe_transfer = (planet.mass() - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
             let transfer_amount = desired_transfer.min(max_safe_transfer);
+
+            log::info!("Transfer amount: {}, safe max: {}", transfer_amount, max_safe_transfer);
 
             if transfer_amount > 0.0 {
                 // Add fuel to rocket
@@ -858,13 +872,16 @@ impl World {
 
                     // Deplete planet mass by the same amount (1:1 ratio)
                     if let Some(planet) = self.planets.get_mut(&nearest_planet_id) {
-                        let new_mass = planet.mass() - transfer_amount;
+                        let new_mass = old_mass - transfer_amount;
                         planet.set_mass(new_mass); // This automatically updates radius
+                        log::info!("!!! MASS CHANGED: {} -> {}", old_mass, new_mass);
                     }
 
                     return true; // Successfully refueling
                 }
             }
+        } else {
+            log::info!("No planet in range");
         }
 
         false // Not refueling
