@@ -746,6 +746,40 @@ impl MultiplayerClient {
             // Draw bullet current position as small red dot
             let bullet_map_pos = world_to_map(bullet_pos);
             draw_circle(bullet_map_pos.x, bullet_map_pos.y, 3.0, Color::new(1.0, 0.0, 0.0, 1.0));
+
+            // Check for predicted collisions with rockets and satellites
+            for &predicted_pos in &predicted_positions {
+                // Check rocket collisions
+                for (_rocket_id, rocket) in self.world.rockets_with_ids() {
+                    if rocket.is_landed() {
+                        continue; // Skip landed rockets
+                    }
+                    let distance = (predicted_pos - rocket.position()).length();
+                    let rocket_radius = 12.0;
+                    if distance < rocket_radius + 3.0 {
+                        // Collision predicted! Draw warning marker
+                        let collision_map_pos = world_to_map(predicted_pos);
+                        draw_circle(collision_map_pos.x, collision_map_pos.y, 8.0, Color::new(1.0, 0.5, 0.0, 0.8)); // Orange warning
+                        draw_circle_lines(collision_map_pos.x, collision_map_pos.y, 8.0, 2.0, Color::new(1.0, 0.0, 0.0, 1.0)); // Red outline
+                        draw_text("!", collision_map_pos.x - 3.0, collision_map_pos.y + 5.0, 20.0, RED);
+                        break;
+                    }
+                }
+
+                // Check satellite collisions
+                for (_sat_id, satellite) in &satellites {
+                    let distance = (predicted_pos - satellite.position()).length();
+                    let satellite_radius = 7.0;
+                    if distance < satellite_radius + 3.0 {
+                        // Collision predicted! Draw warning marker
+                        let collision_map_pos = world_to_map(predicted_pos);
+                        draw_circle(collision_map_pos.x, collision_map_pos.y, 8.0, Color::new(1.0, 0.5, 0.0, 0.8)); // Orange warning
+                        draw_circle_lines(collision_map_pos.x, collision_map_pos.y, 8.0, 2.0, Color::new(1.0, 0.0, 0.0, 1.0)); // Red outline
+                        draw_text("!", collision_map_pos.x - 3.0, collision_map_pos.y + 5.0, 20.0, RED);
+                        break;
+                    }
+                }
+            }
         }
 
         // Satellite list on the right side of the map

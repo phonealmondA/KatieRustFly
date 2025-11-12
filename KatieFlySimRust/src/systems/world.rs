@@ -511,9 +511,88 @@ impl World {
             }
         }
 
+        // Check for bullet-rocket collisions
+        let mut rockets_to_respawn = Vec::new();
+        for (bullet_id, bullet) in &self.bullets {
+            for (rocket_id, rocket) in &self.rockets {
+                // Skip landed rockets (they're safe on the surface)
+                if rocket.is_landed() {
+                    continue;
+                }
+
+                let distance = (bullet.position() - rocket.position()).length();
+                // Rocket hitbox is approximately 12 units (from landing collision code)
+                let rocket_radius = 12.0;
+                if distance < rocket_radius + bullet.size() {
+                    // Mark both bullet and rocket for removal/respawn
+                    if !bullets_to_remove.contains(bullet_id) {
+                        bullets_to_remove.push(*bullet_id);
+                    }
+                    if !rockets_to_respawn.contains(rocket_id) {
+                        rockets_to_respawn.push(*rocket_id);
+                    }
+                    log::info!("Bullet {} hit rocket {}", bullet_id, rocket_id);
+                    break;
+                }
+            }
+        }
+
+        // Check for bullet-satellite collisions
+        let mut satellites_to_destroy = Vec::new();
+        for (bullet_id, bullet) in &self.bullets {
+            for (satellite_id, satellite) in &self.satellites {
+                let distance = (bullet.position() - satellite.position()).length();
+                // Satellite hitbox is approximately 7 units (from existing collision code)
+                let satellite_radius = 7.0;
+                if distance < satellite_radius + bullet.size() {
+                    // Mark both bullet and satellite for removal
+                    if !bullets_to_remove.contains(bullet_id) {
+                        bullets_to_remove.push(*bullet_id);
+                    }
+                    if !satellites_to_destroy.contains(satellite_id) {
+                        satellites_to_destroy.push(*satellite_id);
+                    }
+                    log::info!("Bullet {} destroyed satellite {}", bullet_id, satellite_id);
+                    break;
+                }
+            }
+        }
+
         // Remove despawned and collided bullets
         for bullet_id in bullets_to_remove {
             self.bullets.remove(&bullet_id);
+        }
+
+        // Destroy satellites hit by bullets
+        for satellite_id in satellites_to_destroy {
+            self.satellites.remove(&satellite_id);
+            log::info!("Satellite {} destroyed by bullet", satellite_id);
+        }
+
+        // Respawn rockets hit by bullets (convert to debris and respawn at origin)
+        for rocket_id in rockets_to_respawn {
+            if let Some(rocket) = self.rockets.remove(&rocket_id) {
+                // If this was the active rocket, clear it (will be reassigned to new spawn)
+                if self.active_rocket_id == Some(rocket_id) {
+                    self.active_rocket_id = None;
+                }
+                log::info!("Rocket {} destroyed by bullet, respawning at origin", rocket_id);
+
+                // Spawn new rocket at origin (0, 0) with default settings
+                let mut new_rocket = Rocket::new(
+                    Vec2::new(0.0, 200.0), // Spawn slightly above origin
+                    Vec2::new(0.0, 0.0),   // No initial velocity
+                    rocket.color(),         // Keep same color
+                    GameConstants::ROCKET_BASE_MASS,
+                );
+                new_rocket.set_player_id(rocket.player_id()); // Keep same player ID
+                let new_rocket_id = self.add_rocket(new_rocket);
+
+                // If this was the active rocket, make the new one active
+                if self.active_rocket_id.is_none() {
+                    self.active_rocket_id = Some(new_rocket_id);
+                }
+            }
         }
 
         // Apply planet-to-planet gravity
