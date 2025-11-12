@@ -1046,10 +1046,10 @@ impl SinglePlayerGame {
         use crate::systems::ReferenceBody;
         let reference_body = self.vehicle_manager.visualization().reference_body;
 
-        // Use direct index: planets[0] = Earth, planets[1] = Moon
+        // Use direct index: planets[0] = Moon, planets[1] = Earth
         let selected_planet = match reference_body {
-            ReferenceBody::Earth => all_planets.get(0).copied(),
-            ReferenceBody::Moon => all_planets.get(1).copied(),
+            ReferenceBody::Earth => all_planets.get(1).copied(),
+            ReferenceBody::Moon => all_planets.get(0).copied(),
         };
 
         self.info_display.update_all_panels(
