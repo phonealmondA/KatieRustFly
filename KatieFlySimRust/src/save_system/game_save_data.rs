@@ -310,6 +310,20 @@ impl GameSaveData {
         Ok(())
     }
 
+    /// Save to multiplayer saves folder (saves/multi/)
+    pub fn save_to_multi_file(&self, save_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Create saves/multi directory if it doesn't exist
+        fs::create_dir_all("saves/multi")?;
+
+        let file_path = format!("saves/multi/{}.sav", save_name);
+        let bytes = bincode::serialize(self)?;
+        let byte_count = bytes.len();
+        fs::write(&file_path, bytes)?;
+
+        log::info!("Multiplayer game saved to: {} ({} bytes)", file_path, byte_count);
+        Ok(())
+    }
+
     /// Load from binary file using bincode
     pub fn load_from_file(save_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file_path = format!("saves/{}.sav", save_name);
@@ -322,6 +336,21 @@ impl GameSaveData {
         let save_data: GameSaveData = bincode::deserialize(&bytes)?;
 
         log::info!("Game loaded from: {} ({} bytes)", file_path, bytes.len());
+        Ok(save_data)
+    }
+
+    /// Load from multiplayer saves folder (saves/multi/)
+    pub fn load_from_multi_file(save_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let file_path = format!("saves/multi/{}.sav", save_name);
+
+        if !Path::new(&file_path).exists() {
+            return Err(format!("Multiplayer save file not found: {}", file_path).into());
+        }
+
+        let bytes = fs::read(&file_path)?;
+        let save_data: GameSaveData = bincode::deserialize(&bytes)?;
+
+        log::info!("Multiplayer game loaded from: {} ({} bytes)", file_path, bytes.len());
         Ok(save_data)
     }
 

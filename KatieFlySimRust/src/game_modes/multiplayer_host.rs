@@ -24,6 +24,7 @@ struct ClientInputPacket {
     thrust_level: f32,    // 0.0 to 1.0
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
+    save_requested: bool, // true if client pressed F5 (quick save)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +68,10 @@ pub struct MultiplayerHost {
     // Network map view
     show_network_map: bool,
     marked_satellites: HashSet<EntityId>,
+
+    // Save celebration (F5 quick save)
+    save_celebration_player_id: Option<u32>, // Which player triggered the save
+    save_celebration_timer: f32,              // Time remaining for "what a save!!" text
 }
 
 impl MultiplayerHost {
@@ -144,6 +149,9 @@ impl MultiplayerHost {
 
             show_network_map: false,
             marked_satellites: HashSet::new(),
+
+            save_celebration_player_id: None,
+            save_celebration_timer: 0.0,
         })
     }
 
