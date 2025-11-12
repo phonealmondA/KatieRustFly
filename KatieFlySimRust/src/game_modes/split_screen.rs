@@ -333,6 +333,20 @@ impl SplitScreenGame {
             self.player2_info_display.hide_all_panels();
         }
 
+        // Visualization toggles (shared for both players)
+        if is_key_pressed(KeyCode::T) {
+            self.vehicle_manager.toggle_trajectory();
+            log::info!("Toggled trajectory visualization: {}", self.vehicle_manager.visualization().show_trajectory);
+        }
+        if is_key_pressed(KeyCode::G) {
+            self.vehicle_manager.toggle_gravity_forces();
+            log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
+        }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
+
         // Mouse wheel zoom - always works, switches to ShowBoth mode with manual zoom
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
@@ -489,6 +503,16 @@ impl SplitScreenGame {
 
         // Update world physics
         self.world.update(delta_time);
+
+        // Handle manual planet refueling (R key for both players - shared key)
+        if is_key_down(KeyCode::R) {
+            if let Some(rocket_id) = self.player1_rocket_id {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+            if let Some(rocket_id) = self.player2_rocket_id {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
 
         // Update game time
         self.game_time += delta_time;

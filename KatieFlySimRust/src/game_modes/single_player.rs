@@ -443,6 +443,10 @@ impl SinglePlayerGame {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // Mouse wheel zoom (reduced delta for finer control)
         let mouse_wheel = mouse_wheel().1;
@@ -475,6 +479,13 @@ impl SinglePlayerGame {
 
         // Update world (physics, entities)
         self.world.update(delta_time);
+
+        // Handle manual planet refueling (R key)
+        if let Some(rocket_id) = self.world.active_rocket_id() {
+            if is_key_down(KeyCode::R) {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
 
         // Update camera to follow active rocket
         if let Some(rocket) = self.world.get_active_rocket() {
