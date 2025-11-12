@@ -1046,20 +1046,10 @@ impl SinglePlayerGame {
         use crate::systems::ReferenceBody;
         let reference_body = self.vehicle_manager.visualization().reference_body;
 
-        // Find the correct planet by mass (Earth is more massive than Moon)
+        // Use direct index: planets[0] = Earth, planets[1] = Moon
         let selected_planet = match reference_body {
-            ReferenceBody::Earth => {
-                // Find the most massive planet (Earth)
-                all_planets.iter()
-                    .max_by(|a, b| a.mass().partial_cmp(&b.mass()).unwrap())
-                    .copied()
-            },
-            ReferenceBody::Moon => {
-                // Find the least massive planet (Moon)
-                all_planets.iter()
-                    .min_by(|a, b| a.mass().partial_cmp(&b.mass()).unwrap())
-                    .copied()
-            },
+            ReferenceBody::Earth => all_planets.get(0).copied(),
+            ReferenceBody::Moon => all_planets.get(1).copied(),
         };
 
         self.info_display.update_all_panels(
