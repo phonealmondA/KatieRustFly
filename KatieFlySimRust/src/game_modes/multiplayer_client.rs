@@ -24,6 +24,7 @@ struct ClientInputPacket {
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
     save_requested: bool, // true if client pressed F5 (quick save)
+    refuel_from_planet: bool, // true if client wants to refuel from planet (R key)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -327,6 +328,9 @@ impl MultiplayerClient {
                 self.save_celebration_timer = 5.0;
             }
 
+            // Refuel from planet (R key)
+            let refuel_from_planet = is_key_down(KeyCode::R);
+
             // Send input packet to host
             let input_packet = ClientInputPacket {
                 player_id: self.player_id,
@@ -335,6 +339,7 @@ impl MultiplayerClient {
                 convert_to_satellite,
                 shoot_bullet,
                 save_requested,
+                refuel_from_planet,
             };
 
             if let Ok(bytes) = bincode::serialize(&input_packet) {

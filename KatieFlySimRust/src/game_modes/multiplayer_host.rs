@@ -25,6 +25,7 @@ struct ClientInputPacket {
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
     save_requested: bool, // true if client pressed F5 (quick save)
+    refuel_from_planet: bool, // true if client wants to refuel from planet (R key)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -73,6 +74,9 @@ pub struct MultiplayerHost {
     // Save celebration (F5 quick save)
     save_celebration_player_id: Option<u32>, // Which player triggered the save
     save_celebration_timer: f32,              // Time remaining for "what a save!!" text
+
+    // Refueling requests from clients
+    refueling_rockets: HashSet<EntityId>, // Rockets that are currently requesting planet refuel
 }
 
 impl MultiplayerHost {
@@ -154,6 +158,8 @@ impl MultiplayerHost {
 
             save_celebration_player_id: None,
             save_celebration_timer: 0.0,
+
+            refueling_rockets: HashSet::new(),
         })
     }
 
@@ -500,6 +506,13 @@ impl MultiplayerHost {
             if input.save_requested {
                 self.quick_save(input.player_id);
             }
+
+            // Refuel from planet if requested (R key)
+            if input.refuel_from_planet {
+                self.refueling_rockets.insert(rid);
+            } else {
+                self.refueling_rockets.remove(&rid);
+            }
         }
     }
 
@@ -514,6 +527,18 @@ impl MultiplayerHost {
 
         // Update physics
         self.world.update(delta_time);
+
+        // Handle manual planet refueling for host (player 0) if R key is held
+        if let Some(rocket_id) = self.active_rocket_id {
+            if is_key_down(KeyCode::R) {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
+
+        // Handle manual planet refueling for clients
+        for rocket_id in &self.refueling_rockets {
+            self.world.handle_manual_planet_refuel(*rocket_id, delta_time);
+        }
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
