@@ -1059,6 +1059,7 @@ impl SinglePlayerGame {
             active_rocket,
             &all_planets,
             selected_planet,
+            reference_body,  // Pass reference body so UI knows which planet
             self.selected_thrust_level,
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)

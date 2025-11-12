@@ -1128,12 +1128,14 @@ impl MultiplayerClient {
                 let satellite_stats = self.world.get_satellite_network_stats();
 
                 // Default to Earth (first planet) for multiplayer
+                use crate::systems::ReferenceBody;
                 let selected_planet = all_planets.get(0).copied();
 
                 self.game_info.update_all_panels(
                     Some(rocket),
                     &all_planets,
                     selected_planet,
+                    ReferenceBody::Earth,  // Default to Earth
                     self.player_state.thrust_level(),
                     self.connected,  // network_connected
                     Some(self.player_id as usize),  // Client player ID

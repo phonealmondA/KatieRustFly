@@ -4,7 +4,7 @@
 use macroquad::prelude::*;
 
 use crate::entities::{Rocket, Planet};
-use crate::systems::SatelliteNetworkStats;
+use crate::systems::{SatelliteNetworkStats, ReferenceBody};
 use crate::ui::TextPanel;
 use crate::utils::vector_helper;
 
@@ -247,14 +247,14 @@ impl GameInfoDisplay {
     }
 
     /// Update planet information panel
-    pub fn update_planet_panel(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>) {
-        let info = self.generate_planet_info(rocket_position, selected_planet);
+    pub fn update_planet_panel(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>, reference_body: ReferenceBody) {
+        let info = self.generate_planet_info(rocket_position, selected_planet, reference_body);
         self.planet_panel.set_text(&info);
     }
 
     /// Update orbital information panel
-    pub fn update_orbit_panel(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet]) {
-        let info = self.generate_orbit_info(rocket, selected_planet, all_planets);
+    pub fn update_orbit_panel(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet], reference_body: ReferenceBody) {
+        let info = self.generate_orbit_info(rocket, selected_planet, all_planets, reference_body);
         self.orbit_panel.set_text(&info);
     }
 
@@ -276,6 +276,7 @@ impl GameInfoDisplay {
         rocket: Option<&Rocket>,
         planets: &[&Planet],
         selected_planet: Option<&Planet>,
+        reference_body: ReferenceBody,
         selected_thrust: f32,
         network_connected: bool,
         player_id: Option<usize>,
@@ -287,8 +288,8 @@ impl GameInfoDisplay {
             self.update_rocket_panel(rocket, selected_thrust);
 
             // Use selected planet for panels 2 and 3
-            self.update_planet_panel(rocket_pos, selected_planet);
-            self.update_orbit_panel(rocket, selected_planet, planets);
+            self.update_planet_panel(rocket_pos, selected_planet, reference_body);
+            self.update_orbit_panel(rocket, selected_planet, planets, reference_body);
         }
 
         if self.game_mode != GameMode::SinglePlayer {
@@ -330,15 +331,18 @@ impl GameInfoDisplay {
     }
 
     /// Generate planet information text
-    fn generate_planet_info(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>) -> String {
+    fn generate_planet_info(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>, reference_body: ReferenceBody) -> String {
         if let Some(planet) = selected_planet {
             let distance = vector_helper::distance(rocket_position, planet.position());
             let mass = planet.mass();
             let radius = planet.radius();
             let fuel_range = planet.fuel_collection_range();
 
-            // Determine planet name based on mass (Earth is more massive)
-            let planet_name = if mass > 5e14 { "Earth" } else { "Moon" };
+            // Determine planet name from reference body
+            let planet_name = match reference_body {
+                ReferenceBody::Earth => "Earth",
+                ReferenceBody::Moon => "Moon",
+            };
 
             // Update panel title dynamically
             let title = format!("Selected Planet: {}", planet_name);
@@ -357,7 +361,7 @@ impl GameInfoDisplay {
     }
 
     /// Generate orbital information text
-    fn generate_orbit_info(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet]) -> String {
+    fn generate_orbit_info(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet], reference_body: ReferenceBody) -> String {
         if let Some(planet) = selected_planet {
             let rocket_pos = rocket.position();
             let rocket_vel = rocket.velocity();
@@ -365,8 +369,11 @@ impl GameInfoDisplay {
             let planet_mass = planet.mass();
             let planet_radius = planet.radius();
 
-            // Determine planet name based on mass (Earth is more massive)
-            let planet_name = if planet_mass > 5e14 { "Earth" } else { "Moon" };
+            // Determine planet name from reference body
+            let planet_name = match reference_body {
+                ReferenceBody::Earth => "Earth",
+                ReferenceBody::Moon => "Moon",
+            };
 
             // Update panel title dynamically
             let title = format!("Orbital Info of {}", planet_name);
