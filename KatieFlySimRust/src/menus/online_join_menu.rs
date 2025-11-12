@@ -5,6 +5,7 @@ use crate::ui::Button;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum InputField {
+    Name,
     IpAddress,
     Port,
 }
@@ -12,13 +13,14 @@ enum InputField {
 #[derive(Debug, Clone, PartialEq)]
 pub enum OnlineJoinMenuResult {
     None,
-    Connect(String, u16), // Connect to IP:Port
+    Connect(String, String, u16), // Connect with player name, IP, and port
     Back,
 }
 
 pub struct OnlineJoinMenu {
     join_button: Button,
     back_button: Button,
+    name_input: String,
     ip_input: String,
     port_input: String,
     active_field: InputField,
@@ -30,7 +32,7 @@ impl OnlineJoinMenu {
         let button_width = 300.0;
         let button_height = 50.0;
         let center_x = window_size.x / 2.0 - button_width / 2.0;
-        let start_y = window_size.y / 2.0 + 100.0;
+        let start_y = window_size.y / 2.0 + 150.0;
         let spacing = 70.0;
 
         Self {
@@ -46,9 +48,10 @@ impl OnlineJoinMenu {
                 "Back",
                 Color::from_rgba(120, 50, 50, 255),
             ),
+            name_input: "Player".to_string(), // Default name
             ip_input: "127.0.0.1".to_string(), // Default localhost
             port_input: "7777".to_string(), // Default port
-            active_field: InputField::IpAddress,
+            active_field: InputField::Name,
             error_message: None,
         }
     }
@@ -59,14 +62,16 @@ impl OnlineJoinMenu {
         // Tab to switch fields
         if is_key_pressed(KeyCode::Tab) {
             self.active_field = match self.active_field {
+                InputField::Name => InputField::IpAddress,
                 InputField::IpAddress => InputField::Port,
-                InputField::Port => InputField::IpAddress,
+                InputField::Port => InputField::Name,
             };
         }
 
         // Handle text input
         if let Some(key) = get_last_key_pressed() {
             let input = match self.active_field {
+                InputField::Name => &mut self.name_input,
                 InputField::IpAddress => &mut self.ip_input,
                 InputField::Port => &mut self.port_input,
             };
@@ -88,14 +93,30 @@ impl OnlineJoinMenu {
                         input.push('.');
                     }
                 }
+                KeyCode::Space => {
+                    if matches!(self.active_field, InputField::Name) {
+                        input.push(' ');
+                    }
+                }
                 KeyCode::Backspace => {
                     input.pop();
+                }
+                // Letter keys (only for name field)
+                _ if matches!(self.active_field, InputField::Name) => {
+                    if let Some(ch) = self.key_to_char(key) {
+                        input.push(ch);
+                    }
                 }
                 _ => {}
             }
 
             // Limit input lengths
             match self.active_field {
+                InputField::Name => {
+                    if self.name_input.len() > 16 {
+                        self.name_input.truncate(16);
+                    }
+                }
                 InputField::IpAddress => {
                     if self.ip_input.len() > 15 {
                         self.ip_input.truncate(15);
@@ -111,20 +132,20 @@ impl OnlineJoinMenu {
 
         // Check for button clicks
         if self.join_button.update(mouse_pressed) {
-            // Validate IP and port
-            match self.port_input.parse::<u16>() {
-                Ok(port) if port > 0 => {
-                    // Basic IP validation
-                    if self.validate_ip(&self.ip_input) {
-                        log::info!("Connecting to {}:{}", self.ip_input, port);
-                        return OnlineJoinMenuResult::Connect(self.ip_input.clone(), port);
-                    } else {
-                        self.error_message = Some("Invalid IP address".to_string());
-                    }
-                }
-                _ => {
+            // Validate name, IP and port
+            if self.name_input.trim().is_empty() {
+                self.error_message = Some("Please enter a player name".to_string());
+            } else if !self.validate_ip(&self.ip_input) {
+                self.error_message = Some("Invalid IP address".to_string());
+            } else if let Ok(port) = self.port_input.parse::<u16>() {
+                if port > 0 {
+                    log::info!("Connecting as '{}' to {}:{}", self.name_input, self.ip_input, port);
+                    return OnlineJoinMenuResult::Connect(self.name_input.clone(), self.ip_input.clone(), port);
+                } else {
                     self.error_message = Some("Invalid port number".to_string());
                 }
+            } else {
+                self.error_message = Some("Invalid port number".to_string());
             }
         }
 
@@ -133,6 +154,39 @@ impl OnlineJoinMenu {
         }
 
         OnlineJoinMenuResult::None
+    }
+
+    fn key_to_char(&self, key: KeyCode) -> Option<char> {
+        match key {
+            KeyCode::A => Some('A'),
+            KeyCode::B => Some('B'),
+            KeyCode::C => Some('C'),
+            KeyCode::D => Some('D'),
+            KeyCode::E => Some('E'),
+            KeyCode::F => Some('F'),
+            KeyCode::G => Some('G'),
+            KeyCode::H => Some('H'),
+            KeyCode::I => Some('I'),
+            KeyCode::J => Some('J'),
+            KeyCode::K => Some('K'),
+            KeyCode::L => Some('L'),
+            KeyCode::M => Some('M'),
+            KeyCode::N => Some('N'),
+            KeyCode::O => Some('O'),
+            KeyCode::P => Some('P'),
+            KeyCode::Q => Some('Q'),
+            KeyCode::R => Some('R'),
+            KeyCode::S => Some('S'),
+            KeyCode::T => Some('T'),
+            KeyCode::U => Some('U'),
+            KeyCode::V => Some('V'),
+            KeyCode::W => Some('W'),
+            KeyCode::X => Some('X'),
+            KeyCode::Y => Some('Y'),
+            KeyCode::Z => Some('Z'),
+            KeyCode::Minus => Some('-'),
+            _ => None,
+        }
     }
 
     fn validate_ip(&self, ip: &str) -> bool {
@@ -165,7 +219,7 @@ impl OnlineJoinMenu {
         draw_text(title, title_x, title_y, title_size, WHITE);
 
         // Instructions
-        let instructions = "Enter host IP address and port (press TAB to switch fields)";
+        let instructions = "Enter your name, IP address and port (press TAB to switch fields)";
         let inst_size = 20.0;
         let inst_dims = measure_text(instructions, None, inst_size as u16, 1.0);
         let inst_x = screen_width() / 2.0 - inst_dims.width / 2.0;
@@ -177,8 +231,44 @@ impl OnlineJoinMenu {
         let input_x = screen_width() / 2.0 - input_width / 2.0;
         let label_size = 20.0;
 
+        // Name input
+        let name_y = screen_height() / 2.0 - 130.0;
+
+        let name_color = if matches!(self.active_field, InputField::Name) {
+            Color::new(0.3, 0.3, 0.5, 1.0)
+        } else {
+            Color::new(0.2, 0.2, 0.3, 1.0)
+        };
+
+        draw_rectangle(input_x, name_y, input_width, input_height, name_color);
+        draw_rectangle_lines(
+            input_x,
+            name_y,
+            input_width,
+            input_height,
+            2.0,
+            if matches!(self.active_field, InputField::Name) { YELLOW } else { WHITE }
+        );
+
+        // Name label
+        let name_label = "Name:";
+        let name_label_dims = measure_text(name_label, None, label_size as u16, 1.0);
+        draw_text(name_label, input_x - name_label_dims.width - 20.0, name_y + 32.0, label_size, WHITE);
+
+        // Name text
+        let name_text_size = 28.0;
+        let name_text_dims = measure_text(&self.name_input, None, name_text_size as u16, 1.0);
+        let name_text_x = input_x + input_width / 2.0 - name_text_dims.width / 2.0;
+        draw_text(&self.name_input, name_text_x, name_y + 33.0, name_text_size, WHITE);
+
+        // Name cursor
+        if matches!(self.active_field, InputField::Name) && (get_time() * 2.0) as i32 % 2 == 0 {
+            let cursor_x = name_text_x + name_text_dims.width + 5.0;
+            draw_rectangle(cursor_x, name_y + 10.0, 2.0, 30.0, YELLOW);
+        }
+
         // IP Address input
-        let ip_y = screen_height() / 2.0 - 80.0;
+        let ip_y = name_y + 80.0;
 
         // Highlight active field
         let ip_color = if matches!(self.active_field, InputField::IpAddress) {
