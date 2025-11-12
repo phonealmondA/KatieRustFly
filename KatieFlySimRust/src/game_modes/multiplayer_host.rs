@@ -39,6 +39,7 @@ struct ConnectedClient {
     addr: SocketAddr,
     player_id: u32,
     last_seen: f64, // Timestamp of last received packet
+    player_name: String, // Player's chosen name
 }
 
 pub struct MultiplayerHost {
@@ -52,6 +53,7 @@ pub struct MultiplayerHost {
     player_input: PlayerInput,
     player_state: PlayerInputState,
     active_rocket_id: Option<EntityId>,
+    host_player_name: String, // Host's player name
 
     // Networking
     socket: Arc<UdpSocket>,
@@ -59,6 +61,7 @@ pub struct MultiplayerHost {
     snapshot_timer: f32,
     next_player_id: u32, // Next available player ID for new clients
     port: u16, // UDP port this host is listening on
+    player_names: HashMap<u32, String>, // Map player IDs to player names
 
     // Game state
     window_size: Vec2,
@@ -120,7 +123,7 @@ impl MultiplayerHost {
     }
 
     /// Create a new multiplayer host
-    pub fn new(window_size: Vec2, port: u16) -> Result<Self, String> {
+    pub fn new(window_size: Vec2, player_name: String, port: u16) -> Result<Self, String> {
         // Bind UDP socket
         let socket = UdpSocket::bind(format!("0.0.0.0:{}", port))
             .map_err(|e| format!("Failed to bind UDP socket on port {}: {}", port, e))?;
@@ -129,7 +132,11 @@ impl MultiplayerHost {
         socket.set_nonblocking(true)
             .map_err(|e| format!("Failed to set non-blocking mode: {}", e))?;
 
-        log::info!("Multiplayer host listening on port {}", port);
+        log::info!("Multiplayer host '{}' listening on port {}", player_name, port);
+
+        // Initialize player names map with host's name
+        let mut player_names = HashMap::new();
+        player_names.insert(0, player_name.clone());
 
         Ok(Self {
             world: World::new(),
@@ -140,12 +147,14 @@ impl MultiplayerHost {
             player_input: PlayerInput::player1(), // Host uses Player 1 controls
             player_state: PlayerInputState::new(0), // Host is player 0
             active_rocket_id: None,
+            host_player_name: player_name,
 
             socket: Arc::new(socket),
             clients: Arc::new(Mutex::new(HashMap::new())),
             snapshot_timer: 0.0,
             next_player_id: 1, // Host is player 0, clients start at 1
             port,
+            player_names,
 
             window_size,
             paused: false,
