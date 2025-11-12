@@ -312,6 +312,11 @@ impl MultiplayerHost {
             self.save_game();
         }
 
+        // F5 - quick save (triggers "what a save!!" celebration)
+        if is_key_pressed(KeyCode::F5) {
+            self.quick_save(0); // Host is player 0
+        }
+
         // Only process game controls if not paused
         if !self.paused {
             self.handle_player_controls();
