@@ -63,6 +63,7 @@ pub struct MultiplayerHost {
     window_size: Vec2,
     paused: bool,
     show_controls: bool,
+    show_quit_confirmation: bool,
     current_save_name: Option<String>,
 
     // Network map view
@@ -145,6 +146,7 @@ impl MultiplayerHost {
             window_size,
             paused: false,
             show_controls: false,
+            show_quit_confirmation: false,
             current_save_name: None,
 
             show_network_map: false,
@@ -249,13 +251,46 @@ impl MultiplayerHost {
 
     /// Handle input for the host player
     pub fn handle_input(&mut self) -> MultiplayerHostResult {
-        // ESC - return to menu or close controls popup
+        // Handle quit confirmation popup buttons
+        if self.show_quit_confirmation {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                let mouse_pos = mouse_position();
+                let screen_w = screen_width();
+                let screen_h = screen_height();
+                let popup_w = 400.0;
+                let popup_h = 200.0;
+                let popup_x = screen_w / 2.0 - popup_w / 2.0;
+                let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+                // Yes button
+                let yes_button_x = popup_x + popup_w / 2.0 - 110.0;
+                let yes_button_y = popup_y + popup_h - 60.0;
+                let button_w = 80.0;
+                let button_h = 40.0;
+
+                if mouse_pos.0 >= yes_button_x && mouse_pos.0 <= yes_button_x + button_w &&
+                   mouse_pos.1 >= yes_button_y && mouse_pos.1 <= yes_button_y + button_h {
+                    log::info!("Quit confirmed - returning to menu");
+                    return MultiplayerHostResult::ReturnToMenu;
+                }
+
+                // No button
+                let no_button_x = popup_x + popup_w / 2.0 + 30.0;
+                if mouse_pos.0 >= no_button_x && mouse_pos.0 <= no_button_x + button_w &&
+                   mouse_pos.1 >= yes_button_y && mouse_pos.1 <= yes_button_y + button_h {
+                    self.show_quit_confirmation = false;
+                }
+            }
+        }
+
+        // ESC - close popups or show quit confirmation
         if is_key_pressed(KeyCode::Escape) {
             if self.show_controls {
                 self.show_controls = false;
+            } else if self.show_quit_confirmation {
+                self.show_quit_confirmation = false;
             } else {
-                log::info!("ESC pressed - returning to menu");
-                return MultiplayerHostResult::ReturnToMenu;
+                self.show_quit_confirmation = true;
             }
         }
 
@@ -1211,6 +1246,11 @@ impl MultiplayerHost {
             draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
         }
 
+        // Draw quit confirmation popup if showing
+        if self.show_quit_confirmation {
+            self.draw_quit_confirmation();
+        }
+
         // Draw controls popup if showing
         if self.show_controls {
             self.draw_controls_popup();
@@ -1220,6 +1260,106 @@ impl MultiplayerHost {
         if self.show_network_map {
             self.draw_network_map();
         }
+    }
+
+    fn draw_quit_confirmation(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let popup_w = 400.0;
+        let popup_h = 200.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.6));
+
+        // Popup background
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::new(0.15, 0.15, 0.2, 0.95));
+        // Popup border
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 3.0, Color::new(1.0, 0.3, 0.3, 1.0));
+
+        // Title
+        let title = "Quit Game?";
+        let title_size = 36.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            popup_x + popup_w / 2.0 - title_dims.width / 2.0,
+            popup_y + 60.0,
+            title_size,
+            WHITE,
+        );
+
+        // Message
+        let message = "Do you want to quit the game?";
+        let message_size = 20.0;
+        let message_dims = measure_text(message, None, message_size as u16, 1.0);
+        draw_text(
+            message,
+            popup_x + popup_w / 2.0 - message_dims.width / 2.0,
+            popup_y + 105.0,
+            message_size,
+            LIGHTGRAY,
+        );
+
+        // Buttons
+        let button_w = 80.0;
+        let button_h = 40.0;
+        let yes_button_x = popup_x + popup_w / 2.0 - 110.0;
+        let no_button_x = popup_x + popup_w / 2.0 + 30.0;
+        let button_y = popup_y + popup_h - 60.0;
+
+        // Check if mouse is hovering over buttons
+        let mouse_pos = mouse_position();
+        let yes_hover = mouse_pos.0 >= yes_button_x && mouse_pos.0 <= yes_button_x + button_w &&
+                        mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h;
+        let no_hover = mouse_pos.0 >= no_button_x && mouse_pos.0 <= no_button_x + button_w &&
+                       mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h;
+
+        // Yes button
+        let yes_color = if yes_hover {
+            Color::from_rgba(180, 50, 50, 255)
+        } else {
+            Color::from_rgba(150, 40, 40, 255)
+        };
+        draw_rectangle(yes_button_x, button_y, button_w, button_h, yes_color);
+        draw_rectangle_lines(yes_button_x, button_y, button_w, button_h, 2.0, WHITE);
+        let yes_text = "Yes";
+        let yes_dims = measure_text(yes_text, None, 24, 1.0);
+        draw_text(
+            yes_text,
+            yes_button_x + button_w / 2.0 - yes_dims.width / 2.0,
+            button_y + button_h / 2.0 + 8.0,
+            24.0,
+            WHITE,
+        );
+
+        // No button
+        let no_color = if no_hover {
+            Color::from_rgba(50, 150, 50, 255)
+        } else {
+            Color::from_rgba(40, 120, 40, 255)
+        };
+        draw_rectangle(no_button_x, button_y, button_w, button_h, no_color);
+        draw_rectangle_lines(no_button_x, button_y, button_w, button_h, 2.0, WHITE);
+        let no_text = "No";
+        let no_dims = measure_text(no_text, None, 24, 1.0);
+        draw_text(
+            no_text,
+            no_button_x + button_w / 2.0 - no_dims.width / 2.0,
+            button_y + button_h / 2.0 + 8.0,
+            24.0,
+            WHITE,
+        );
+
+        // Footer hint
+        draw_text(
+            "Press ESC to cancel",
+            popup_x + popup_w / 2.0 - 75.0,
+            popup_y + popup_h - 15.0,
+            16.0,
+            LIGHTGRAY,
+        );
     }
 
     fn draw_controls_popup(&self) {
