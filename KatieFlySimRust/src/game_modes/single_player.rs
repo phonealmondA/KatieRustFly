@@ -519,7 +519,12 @@ impl SinglePlayerGame {
         // Handle manual planet refueling (R key)
         if let Some(rocket_id) = self.world.active_rocket_id() {
             if is_key_down(KeyCode::R) {
+                log::info!(">>> R KEY PRESSED - calling handle_manual_planet_refuel");
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        } else {
+            if is_key_down(KeyCode::R) {
+                log::info!(">>> R KEY PRESSED but no active rocket!");
             }
         }
 
