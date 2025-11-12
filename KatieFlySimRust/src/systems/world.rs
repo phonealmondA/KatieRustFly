@@ -740,8 +740,17 @@ impl World {
 
             // Deplete planet mass by the same amount (1:1 ratio)
             if let Some(planet) = self.planets.get_mut(&planet_id) {
-                let new_mass = planet.mass() - fuel_amount;
+                let old_mass = planet.mass();
+                let old_radius = planet.radius();
+                let new_mass = old_mass - fuel_amount;
                 planet.set_mass(new_mass); // This automatically updates radius
+                let new_radius = planet.radius();
+
+                // Log mass depletion for verification
+                log::debug!(
+                    "Planet mass depleted (satellite): {:.1} -> {:.1} (Δ{:.1}) | Radius: {:.1} -> {:.1}",
+                    old_mass, new_mass, fuel_amount, old_radius, new_radius
+                );
             }
         }
     }
@@ -858,8 +867,17 @@ impl World {
 
                     // Deplete planet mass by the same amount (1:1 ratio)
                     if let Some(planet) = self.planets.get_mut(&nearest_planet_id) {
-                        let new_mass = planet.mass() - transfer_amount;
+                        let old_mass = planet.mass();
+                        let old_radius = planet.radius();
+                        let new_mass = old_mass - transfer_amount;
                         planet.set_mass(new_mass); // This automatically updates radius
+                        let new_radius = planet.radius();
+
+                        // Log mass depletion for verification
+                        log::debug!(
+                            "Planet mass depleted: {:.1} -> {:.1} (Δ{:.1}) | Radius: {:.1} -> {:.1}",
+                            old_mass, new_mass, transfer_amount, old_radius, new_radius
+                        );
                     }
 
                     return true; // Successfully refueling
