@@ -16,7 +16,7 @@ pub use orbit_maintenance::{
     OrbitMaintenance, OrbitDriftAnalysis, DriftSeverity,
     ManeuverType, MaintenanceConfig,
 };
-pub use vehicle_manager::{VehicleManager, VisualizationOptions};
+pub use vehicle_manager::{VehicleManager, VisualizationOptions, ReferenceBody};
 pub use satellite_manager::{
     SatelliteManager, SatelliteStatus, SatelliteNetworkStats,
     SatelliteManagerConfig,

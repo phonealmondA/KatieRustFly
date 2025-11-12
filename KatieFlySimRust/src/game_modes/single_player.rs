@@ -48,9 +48,6 @@ pub struct SinglePlayerGame {
 
     // Save celebration (F5 quick save)
     save_celebration_timer: f32,  // Time remaining for "what a save!!" text
-
-    // Selected planet for info panels (0 = Earth, 1 = Moon)
-    selected_planet_index: usize,
 }
 
 impl SinglePlayerGame {
@@ -75,7 +72,6 @@ impl SinglePlayerGame {
             show_network_map: false,
             marked_satellites: HashSet::new(),
             save_celebration_timer: 0.0,
-            selected_planet_index: 0,  // Start with Earth selected
         }
     }
 
@@ -461,10 +457,8 @@ impl SinglePlayerGame {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
         if is_key_pressed(KeyCode::Tab) {
-            // Toggle between Earth (0) and Moon (1)
-            self.selected_planet_index = if self.selected_planet_index == 0 { 1 } else { 0 };
-            let planet_name = if self.selected_planet_index == 0 { "Earth" } else { "Moon" };
-            log::info!("Selected planet for info panels: {}", planet_name);
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
         }
 
         // Mouse wheel zoom (reduced delta for finer control)
@@ -1048,9 +1042,15 @@ impl SinglePlayerGame {
             None
         };
 
-        // Get selected planet for panels 2 and 3
-        let selected_planet = if self.selected_planet_index < all_planets.len() {
-            Some(all_planets[self.selected_planet_index])
+        // Get selected planet for panels 2 and 3 based on reference body
+        use crate::systems::ReferenceBody;
+        let reference_body = self.vehicle_manager.visualization().reference_body;
+        let selected_planet_index = match reference_body {
+            ReferenceBody::Earth => 0,
+            ReferenceBody::Moon => 1,
+        };
+        let selected_planet = if selected_planet_index < all_planets.len() {
+            Some(all_planets[selected_planet_index])
         } else {
             None
         };
