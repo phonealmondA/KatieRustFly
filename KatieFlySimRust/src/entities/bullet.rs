@@ -37,6 +37,11 @@ impl Bullet {
         self.lifetime
     }
 
+    /// Set lifetime (used when restoring from save/network)
+    pub fn set_lifetime(&mut self, lifetime: f32) {
+        self.lifetime = lifetime;
+    }
+
     /// Check if bullet should be despawned
     pub fn should_despawn(&self) -> bool {
         self.lifetime >= self.max_lifetime

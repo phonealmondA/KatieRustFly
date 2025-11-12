@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entities::{GameObject, Planet, Rocket, Satellite};
 use crate::game_constants::GameConstants;
-use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
+use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite, SavedBullet};
 use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputState};
 use crate::ui::{Camera, GameInfoDisplay};
 
@@ -22,6 +22,8 @@ struct ClientInputPacket {
     rotation_delta: f32,  // degrees per frame
     thrust_level: f32,    // 0.0 to 1.0
     convert_to_satellite: bool,
+    shoot_bullet: bool,   // true if client wants to shoot
+    save_requested: bool, // true if client pressed F5 (quick save)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,13 +58,44 @@ pub struct MultiplayerClient {
     window_size: Vec2,
     paused: bool,
     show_controls: bool,
+    show_quit_confirmation: bool,
 
     // Network map view
     show_network_map: bool,
     marked_satellites: HashSet<EntityId>,
+
+    // Save celebration (F5 quick save)
+    save_celebration_player_id: Option<u32>, // Which player triggered the save
+    save_celebration_timer: f32,              // Time remaining for "what a save!!" text
 }
 
 impl MultiplayerClient {
+    /// Calculate spawn position for a player based on their player ID
+    /// Same as host - each player at +5 degrees from previous
+    fn calculate_spawn_position(player_id: u32) -> Vec2 {
+        let angle_degrees = player_id as f32 * 5.0;
+        let angle_radians = angle_degrees.to_radians();
+        let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+
+        Vec2::new(
+            GameConstants::MAIN_PLANET_X + spawn_distance * angle_radians.cos(),
+            GameConstants::MAIN_PLANET_Y + spawn_distance * angle_radians.sin(),
+        )
+    }
+
+    /// Get rocket color for a player based on their player ID
+    fn get_player_color(player_id: u32) -> Color {
+        match player_id {
+            0 => Color::from_rgba(255, 100, 100, 255), // Red for host
+            1 => Color::from_rgba(100, 100, 255, 255), // Blue for player 1
+            2 => Color::from_rgba(100, 255, 100, 255), // Green for player 2
+            3 => Color::from_rgba(255, 255, 100, 255), // Yellow for player 3
+            4 => Color::from_rgba(255, 100, 255, 255), // Magenta for player 4
+            5 => Color::from_rgba(100, 255, 255, 255), // Cyan for player 5
+            _ => Color::from_rgba(200, 200, 200, 255), // Gray for others
+        }
+    }
+
     /// Get trajectory color for a player (semi-transparent version)
     fn get_trajectory_color(player_id: u32) -> Color {
         match player_id {
@@ -118,29 +151,64 @@ impl MultiplayerClient {
             window_size,
             paused: false,
             show_controls: false,
+            show_quit_confirmation: false,
 
             show_network_map: false,
             marked_satellites: HashSet::new(),
+
+            save_celebration_player_id: None,
+            save_celebration_timer: 0.0,
         })
     }
 
     /// Handle input for the client player
     pub fn handle_input(&mut self) -> MultiplayerClientResult {
-        // ESC - return to menu or close controls popup
-        if is_key_pressed(KeyCode::Escape) {
-            if self.show_controls {
-                self.show_controls = false;
-                self.paused = false;
-            } else {
-                log::info!("ESC pressed - disconnecting from host");
-                return MultiplayerClientResult::ReturnToMenu;
+        // Handle quit confirmation popup buttons
+        if self.show_quit_confirmation {
+            if is_mouse_button_pressed(MouseButton::Left) {
+                let mouse_pos = mouse_position();
+                let screen_w = screen_width();
+                let screen_h = screen_height();
+                let popup_w = 400.0;
+                let popup_h = 200.0;
+                let popup_x = screen_w / 2.0 - popup_w / 2.0;
+                let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+                // Yes button
+                let yes_button_x = popup_x + popup_w / 2.0 - 110.0;
+                let yes_button_y = popup_y + popup_h - 60.0;
+                let button_w = 80.0;
+                let button_h = 40.0;
+
+                if mouse_pos.0 >= yes_button_x && mouse_pos.0 <= yes_button_x + button_w &&
+                   mouse_pos.1 >= yes_button_y && mouse_pos.1 <= yes_button_y + button_h {
+                    log::info!("Quit confirmed - disconnecting from host");
+                    return MultiplayerClientResult::ReturnToMenu;
+                }
+
+                // No button
+                let no_button_x = popup_x + popup_w / 2.0 + 30.0;
+                if mouse_pos.0 >= no_button_x && mouse_pos.0 <= no_button_x + button_w &&
+                   mouse_pos.1 >= yes_button_y && mouse_pos.1 <= yes_button_y + button_h {
+                    self.show_quit_confirmation = false;
+                }
             }
         }
 
-        // Enter - toggle controls menu
+        // ESC - close popups or show quit confirmation
+        if is_key_pressed(KeyCode::Escape) {
+            if self.show_controls {
+                self.show_controls = false;
+            } else if self.show_quit_confirmation {
+                self.show_quit_confirmation = false;
+            } else {
+                self.show_quit_confirmation = true;
+            }
+        }
+
+        // Enter - toggle controls menu (game keeps running in background)
         if is_key_pressed(KeyCode::Enter) {
             self.show_controls = !self.show_controls;
-            self.paused = self.show_controls; // Pause when showing controls
         }
 
         // Panel visibility toggles (keys 1-5)
@@ -183,6 +251,10 @@ impl MultiplayerClient {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+
+        // F5 - quick save (sends request to host)
+        // Note: F5 will be sent to host via input packet in handle_player_controls()
+        // Celebration will be triggered when host processes it
 
         // Only process game controls if not paused
         if !self.paused {
@@ -240,12 +312,19 @@ impl MultiplayerClient {
             }
 
             // Shoot bullet (W key for multiplayer, X for singleplayer)
-            if is_key_pressed(KeyCode::W) {
-                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rocket_id) {
-                    log::info!("Client bullet {} fired from rocket {}", bullet_id, rocket_id);
-                } else {
-                    log::info!("Client cannot shoot: not enough fuel (need 1 unit)");
-                }
+            // Don't shoot locally - send to host and let it handle authoritative shooting
+            let shoot_bullet = is_key_pressed(KeyCode::W);
+            if shoot_bullet {
+                log::info!("Client requesting bullet shot");
+            }
+
+            // Quick save (F5 key) - sends request to host
+            let save_requested = is_key_pressed(KeyCode::F5);
+            if save_requested {
+                log::info!("Client requesting quick save (F5)");
+                // Trigger celebration locally immediately
+                self.save_celebration_player_id = Some(self.player_id);
+                self.save_celebration_timer = 5.0;
             }
 
             // Send input packet to host
@@ -254,6 +333,8 @@ impl MultiplayerClient {
                 rotation_delta,
                 thrust_level,
                 convert_to_satellite,
+                shoot_bullet,
+                save_requested,
             };
 
             if let Ok(bytes) = bincode::serialize(&input_packet) {
@@ -301,6 +382,40 @@ impl MultiplayerClient {
 
         // Run local predicted simulation
         self.world.update(delta_time);
+
+        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        let destroyed_rockets = self.world.take_destroyed_rockets();
+        for destroyed in destroyed_rockets {
+            let player_id = destroyed.player_id.unwrap_or(0);
+            log::info!("Player {} rocket destroyed by bullet, respawning", player_id);
+
+            // Spawn new rocket for this player (same as 'C' key respawn logic)
+            let spawn_position = Self::calculate_spawn_position(player_id);
+            let mut new_rocket = Rocket::new(
+                spawn_position,
+                Vec2::new(0.0, 0.0),
+                Self::get_player_color(player_id),
+                GameConstants::ROCKET_BASE_MASS,
+            );
+            new_rocket.set_player_id(Some(player_id));
+            let new_rocket_id = self.world.add_rocket(new_rocket);
+
+            // If this was our rocket (this client's player), update active_rocket_id
+            if player_id == self.player_id {
+                self.active_rocket_id = Some(new_rocket_id);
+                self.world.set_active_rocket(Some(new_rocket_id));
+            }
+
+            log::info!("Respawned new rocket {} for player {}", new_rocket_id, player_id);
+        }
+
+        // Update save celebration timer
+        if self.save_celebration_timer > 0.0 {
+            self.save_celebration_timer -= delta_time;
+            if self.save_celebration_timer <= 0.0 {
+                self.save_celebration_player_id = None;
+            }
+        }
 
         // Update camera to follow client rocket
         if let Some(rocket_id) = self.active_rocket_id {
@@ -408,6 +523,12 @@ impl MultiplayerClient {
         for saved_satellite in snapshot.satellites {
             let (id, satellite) = saved_satellite.to_satellite();
             self.world.add_satellite_with_id(id, satellite);
+        }
+
+        // Load bullets with their original IDs
+        for saved_bullet in snapshot.bullets {
+            let (id, bullet) = saved_bullet.to_bullet();
+            self.world.add_bullet_with_id(id, bullet);
         }
 
         // Update our active rocket to the one that belongs to us
@@ -740,6 +861,40 @@ impl MultiplayerClient {
             // Draw bullet current position as small red dot
             let bullet_map_pos = world_to_map(bullet_pos);
             draw_circle(bullet_map_pos.x, bullet_map_pos.y, 3.0, Color::new(1.0, 0.0, 0.0, 1.0));
+
+            // Check for predicted collisions with rockets and satellites
+            for &predicted_pos in &predicted_positions {
+                // Check rocket collisions
+                for (_rocket_id, rocket) in self.world.rockets_with_ids() {
+                    if rocket.is_landed() {
+                        continue; // Skip landed rockets
+                    }
+                    let distance = (predicted_pos - rocket.position()).length();
+                    let rocket_radius = 12.0;
+                    if distance < rocket_radius + 3.0 {
+                        // Collision predicted! Draw warning marker
+                        let collision_map_pos = world_to_map(predicted_pos);
+                        draw_circle(collision_map_pos.x, collision_map_pos.y, 8.0, Color::new(1.0, 0.5, 0.0, 0.8)); // Orange warning
+                        draw_circle_lines(collision_map_pos.x, collision_map_pos.y, 8.0, 2.0, Color::new(1.0, 0.0, 0.0, 1.0)); // Red outline
+                        draw_text("!", collision_map_pos.x - 3.0, collision_map_pos.y + 5.0, 20.0, RED);
+                        break;
+                    }
+                }
+
+                // Check satellite collisions
+                for (_sat_id, satellite) in &satellites {
+                    let distance = (predicted_pos - satellite.position()).length();
+                    let satellite_radius = 7.0;
+                    if distance < satellite_radius + 3.0 {
+                        // Collision predicted! Draw warning marker
+                        let collision_map_pos = world_to_map(predicted_pos);
+                        draw_circle(collision_map_pos.x, collision_map_pos.y, 8.0, Color::new(1.0, 0.5, 0.0, 0.8)); // Orange warning
+                        draw_circle_lines(collision_map_pos.x, collision_map_pos.y, 8.0, 2.0, Color::new(1.0, 0.0, 0.0, 1.0)); // Red outline
+                        draw_text("!", collision_map_pos.x - 3.0, collision_map_pos.y + 5.0, 20.0, RED);
+                        break;
+                    }
+                }
+            }
         }
 
         // Satellite list on the right side of the map
@@ -787,6 +942,117 @@ impl MultiplayerClient {
         );
     }
 
+    fn draw_controls_popup(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let popup_w = 800.0;
+        let popup_h = 600.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.5));
+
+        // Popup background
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::new(0.1, 0.1, 0.1, 0.95));
+        // Popup border
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 3.0, WHITE);
+
+        // Title
+        let title = "MULTIPLAYER CLIENT CONTROLS";
+        let title_size = 32.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            popup_x + popup_w / 2.0 - title_dims.width / 2.0,
+            popup_y + 40.0,
+            title_size,
+            WHITE,
+        );
+
+        // Controls list - Two columns
+        let controls_left = [
+            ("COMMA", "Decrease thrust -5%"),
+            ("PERIOD", "Increase thrust +5%"),
+            ("SPACE", "Apply thrust"),
+            ("A / LEFT", "Rotate left"),
+            ("D / RIGHT", "Rotate right"),
+            ("Q", "Zoom in"),
+            ("E", "Zoom out"),
+            ("MOUSE WHEEL", "Zoom"),
+            ("W", "Fire bullet"),
+            ("P", "Pause/Unpause (local)"),
+        ];
+
+        let controls_right = [
+            ("T", "Toggle trajectory"),
+            ("G", "Toggle gravity forces"),
+            ("1", "Toggle rocket panel"),
+            ("2", "Toggle planet panel"),
+            ("3", "Toggle orbit panel"),
+            ("4", "Toggle controls panel"),
+            ("5", "Toggle network panel"),
+            ("9", "Hide all panels"),
+            ("0", "Show all panels"),
+            ("F5", "Request quick save"),
+            ("ENTER", "Toggle this menu"),
+            ("ESC", "Disconnect"),
+        ];
+
+        let font_size = 17.0;
+        let line_height = 32.0;
+        let col_spacing = popup_w / 2.0;
+
+        // Draw left column
+        let mut y = popup_y + 85.0;
+        for (key, action) in &controls_left {
+            draw_text(
+                key,
+                popup_x + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Draw right column
+        y = popup_y + 85.0;
+        for (key, action) in &controls_right {
+            draw_text(
+                key,
+                popup_x + col_spacing + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + col_spacing + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Footer
+        draw_text(
+            "Press ESC or ENTER to close this menu",
+            popup_x + popup_w / 2.0 - 160.0,
+            popup_y + popup_h - 30.0,
+            18.0,
+            LIGHTGRAY,
+        );
+    }
+
     /// Render the game
     pub fn render(&mut self) {
         // Set camera
@@ -809,6 +1075,16 @@ impl MultiplayerClient {
                 );
             }
         }
+
+        // Store celebration rocket position for screen-space rendering
+        let celebration_screen_pos = if let Some(player_id) = self.save_celebration_player_id {
+            // Find the rocket belonging to this player
+            self.world.rockets_with_ids()
+                .find(|(_id, rocket)| rocket.player_id() == Some(player_id))
+                .map(|(_id, rocket)| self.camera.world_to_screen(rocket.position()))
+        } else {
+            None
+        };
 
         // Reset to default camera for UI
         set_default_camera();
@@ -863,10 +1139,144 @@ impl MultiplayerClient {
             );
         }
 
+        // Draw "what a save!!" celebration text in screen space
+        if let Some(screen_pos) = celebration_screen_pos {
+            let text = "what a save!!";
+            let text_size = 30.0;
+            let text_offset_y = -80.0; // Above rocket (in screen space, negative is up)
+
+            // Calculate text dimensions for centering
+            let text_dims = measure_text(text, None, text_size as u16, 1.0);
+            let text_x = screen_pos.x - text_dims.width / 2.0;
+            let text_y = screen_pos.y + text_offset_y;
+
+            // Draw shadow/outline
+            for dx in &[-2.0, 0.0, 2.0] {
+                for dy in &[-2.0, 0.0, 2.0] {
+                    if *dx != 0.0 || *dy != 0.0 {
+                        draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                    }
+                }
+            }
+
+            // Draw main text (yellow/gold color)
+            draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+        }
+
+        // Draw quit confirmation popup if showing
+        if self.show_quit_confirmation {
+            self.draw_quit_confirmation();
+        }
+
+        // Draw controls popup if showing
+        if self.show_controls {
+            self.draw_controls_popup();
+        }
+
         // Draw network map popup if showing
         if self.show_network_map {
             self.draw_network_map();
         }
+    }
+
+    fn draw_quit_confirmation(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let popup_w = 400.0;
+        let popup_h = 200.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.6));
+
+        // Popup background
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::new(0.15, 0.15, 0.2, 0.95));
+        // Popup border
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 3.0, Color::new(1.0, 0.3, 0.3, 1.0));
+
+        // Title
+        let title = "Quit Game?";
+        let title_size = 36.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            popup_x + popup_w / 2.0 - title_dims.width / 2.0,
+            popup_y + 60.0,
+            title_size,
+            WHITE,
+        );
+
+        // Message
+        let message = "Do you want to quit the game?";
+        let message_size = 20.0;
+        let message_dims = measure_text(message, None, message_size as u16, 1.0);
+        draw_text(
+            message,
+            popup_x + popup_w / 2.0 - message_dims.width / 2.0,
+            popup_y + 105.0,
+            message_size,
+            LIGHTGRAY,
+        );
+
+        // Buttons
+        let button_w = 80.0;
+        let button_h = 40.0;
+        let yes_button_x = popup_x + popup_w / 2.0 - 110.0;
+        let no_button_x = popup_x + popup_w / 2.0 + 30.0;
+        let button_y = popup_y + popup_h - 60.0;
+
+        // Check if mouse is hovering over buttons
+        let mouse_pos = mouse_position();
+        let yes_hover = mouse_pos.0 >= yes_button_x && mouse_pos.0 <= yes_button_x + button_w &&
+                        mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h;
+        let no_hover = mouse_pos.0 >= no_button_x && mouse_pos.0 <= no_button_x + button_w &&
+                       mouse_pos.1 >= button_y && mouse_pos.1 <= button_y + button_h;
+
+        // Yes button
+        let yes_color = if yes_hover {
+            Color::from_rgba(180, 50, 50, 255)
+        } else {
+            Color::from_rgba(150, 40, 40, 255)
+        };
+        draw_rectangle(yes_button_x, button_y, button_w, button_h, yes_color);
+        draw_rectangle_lines(yes_button_x, button_y, button_w, button_h, 2.0, WHITE);
+        let yes_text = "Yes";
+        let yes_dims = measure_text(yes_text, None, 24, 1.0);
+        draw_text(
+            yes_text,
+            yes_button_x + button_w / 2.0 - yes_dims.width / 2.0,
+            button_y + button_h / 2.0 + 8.0,
+            24.0,
+            WHITE,
+        );
+
+        // No button
+        let no_color = if no_hover {
+            Color::from_rgba(50, 150, 50, 255)
+        } else {
+            Color::from_rgba(40, 120, 40, 255)
+        };
+        draw_rectangle(no_button_x, button_y, button_w, button_h, no_color);
+        draw_rectangle_lines(no_button_x, button_y, button_w, button_h, 2.0, WHITE);
+        let no_text = "No";
+        let no_dims = measure_text(no_text, None, 24, 1.0);
+        draw_text(
+            no_text,
+            no_button_x + button_w / 2.0 - no_dims.width / 2.0,
+            button_y + button_h / 2.0 + 8.0,
+            24.0,
+            WHITE,
+        );
+
+        // Footer hint
+        draw_text(
+            "Press ESC to cancel",
+            popup_x + popup_w / 2.0 - 75.0,
+            popup_y + popup_h - 15.0,
+            16.0,
+            LIGHTGRAY,
+        );
     }
 
     /// Check if connected to host

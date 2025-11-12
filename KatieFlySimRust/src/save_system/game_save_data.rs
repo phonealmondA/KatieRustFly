@@ -7,7 +7,7 @@ use macroquad::prelude::*;
 use std::fs;
 use std::path::Path;
 
-use crate::entities::{Planet, Rocket, Satellite};
+use crate::entities::{Planet, Rocket, Satellite, Bullet};
 use crate::systems::EntityId;
 
 /// Serializable Vec2 wrapper
@@ -202,6 +202,48 @@ impl SavedSatellite {
     }
 }
 
+/// Saved bullet data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedBullet {
+    pub id: EntityId,
+    pub position: SavedVector2,
+    pub velocity: SavedVector2,
+    pub mass: f32,
+    pub lifetime: f32,
+    pub color: (u8, u8, u8),
+}
+
+impl SavedBullet {
+    pub fn from_bullet(id: EntityId, bullet: &Bullet) -> Self {
+        use crate::entities::GameObject;
+
+        SavedBullet {
+            id,
+            position: bullet.position().into(),
+            velocity: bullet.velocity().into(),
+            mass: bullet.mass(),
+            lifetime: bullet.lifetime(),
+            color: (
+                (bullet.color().r * 255.0) as u8,
+                (bullet.color().g * 255.0) as u8,
+                (bullet.color().b * 255.0) as u8,
+            ),
+        }
+    }
+
+    pub fn to_bullet(&self) -> (EntityId, Bullet) {
+        let mut bullet = Bullet::new(
+            self.position.clone().into(),
+            self.velocity.clone().into(),
+        );
+
+        // Restore lifetime (critical for bullets to maintain their age across network)
+        bullet.set_lifetime(self.lifetime);
+
+        (self.id, bullet)
+    }
+}
+
 /// Camera save data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedCamera {
@@ -221,6 +263,7 @@ pub struct GameSaveData {
     pub planets: Vec<SavedPlanet>,
     pub rockets: Vec<SavedRocket>,
     pub satellites: Vec<SavedSatellite>,
+    pub bullets: Vec<SavedBullet>,
 
     // Player state (multiplayer support)
     pub player_id: Option<u32>,      // None = single player, 0-19 = multiplayer
@@ -242,6 +285,7 @@ impl GameSaveData {
             planets: Vec::new(),
             rockets: Vec::new(),
             satellites: Vec::new(),
+            bullets: Vec::new(),
             player_id: None,  // Single player by default
             active_rocket_id: None,
             camera: SavedCamera {
@@ -266,6 +310,20 @@ impl GameSaveData {
         Ok(())
     }
 
+    /// Save to multiplayer saves folder (saves/multi/)
+    pub fn save_to_multi_file(&self, save_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Create saves/multi directory if it doesn't exist
+        fs::create_dir_all("saves/multi")?;
+
+        let file_path = format!("saves/multi/{}.sav", save_name);
+        let bytes = bincode::serialize(self)?;
+        let byte_count = bytes.len();
+        fs::write(&file_path, bytes)?;
+
+        log::info!("Multiplayer game saved to: {} ({} bytes)", file_path, byte_count);
+        Ok(())
+    }
+
     /// Load from binary file using bincode
     pub fn load_from_file(save_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let file_path = format!("saves/{}.sav", save_name);
@@ -278,6 +336,21 @@ impl GameSaveData {
         let save_data: GameSaveData = bincode::deserialize(&bytes)?;
 
         log::info!("Game loaded from: {} ({} bytes)", file_path, bytes.len());
+        Ok(save_data)
+    }
+
+    /// Load from multiplayer saves folder (saves/multi/)
+    pub fn load_from_multi_file(save_name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let file_path = format!("saves/multi/{}.sav", save_name);
+
+        if !Path::new(&file_path).exists() {
+            return Err(format!("Multiplayer save file not found: {}", file_path).into());
+        }
+
+        let bytes = fs::read(&file_path)?;
+        let save_data: GameSaveData = bincode::deserialize(&bytes)?;
+
+        log::info!("Multiplayer game loaded from: {} ({} bytes)", file_path, bytes.len());
         Ok(save_data)
     }
 

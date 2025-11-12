@@ -7,7 +7,7 @@ pub mod vehicle_manager;
 pub mod satellite_manager;
 pub mod player_input;
 
-pub use world::{World, EntityId};
+pub use world::{World, EntityId, DestroyedRocketInfo};
 pub use fuel_transfer_network::{
     FuelTransferNetwork, FuelTransferRequest, TransferPriority,
     TransferStatus, NetworkOptimizationMode, NetworkFlowStats,

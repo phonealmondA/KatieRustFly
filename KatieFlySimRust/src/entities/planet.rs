@@ -66,11 +66,13 @@ impl Planet {
             crate::game_constants::colors::FUEL_RING_COLOR
         };
 
-        // Draw collection ring using macroquad
-        draw_circle_lines(
+        // Draw collection ring with high segment count for smooth circles
+        draw_poly_lines(
             self.data.position.x,
             self.data.position.y,
+            60, // Triple the typical segment count for smoother circles
             collection_radius,
+            0.0, // rotation
             GameConstants::FUEL_RING_THICKNESS,
             color,
         );
@@ -103,21 +105,26 @@ impl GameObject for Planet {
     }
 
     fn draw(&self) {
-        // Draw the planet as a filled circle
-        draw_circle(
+        // Draw the planet as a filled circle with high segment count for smooth edges
+        // Using 60 segments (3x the typical 20) for smoother circles
+        draw_poly(
             self.data.position.x,
             self.data.position.y,
+            60, // Triple the typical segment count for smoother circles
             self.radius,
+            0.0, // rotation
             self.data.color,
         );
 
         // Draw fuel collection range (always visible for planning)
         if self.can_collect_fuel() {
             let collection_radius = self.fuel_collection_range();
-            draw_circle_lines(
+            draw_poly_lines(
                 self.data.position.x,
                 self.data.position.y,
+                60, // Triple the typical segment count for smoother circles
                 collection_radius,
+                0.0, // rotation
                 GameConstants::FUEL_RING_THICKNESS,
                 Color::new(0.0, 1.0, 1.0, 0.7), // Cyan, 70% visible to match satellites
             );

@@ -2,4 +2,4 @@
 
 pub mod game_save_data;
 
-pub use game_save_data::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite, SavedVector2};
+pub use game_save_data::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite, SavedBullet, SavedVector2};
