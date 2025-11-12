@@ -1,5 +1,5 @@
 // Multiplayer Host Mode - Authoritative server broadcasting snapshots via UDP
-// Runs the simulation and broadcasts state every second to all connected clients
+// Runs the simulation and broadcasts state at ~60Hz (every frame) for real-time sync
 
 use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
@@ -14,7 +14,7 @@ use crate::systems::{World, EntityId, VehicleManager, PlayerInput, PlayerInputSt
 use crate::ui::{Camera, GameInfoDisplay};
 use crate::utils::vector_helper;
 
-const SNAPSHOT_INTERVAL: f32 = 1.0; // 1 second between broadcasts for responsive multiplayer
+const SNAPSHOT_INTERVAL: f32 = 1.0 / 60.0; // ~16.67ms between broadcasts (~60 Hz) for real-time sync
 
 /// Client input packet - sent from client to host
 #[derive(Debug, Clone, Serialize, Deserialize)]
