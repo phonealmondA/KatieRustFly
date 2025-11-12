@@ -3,6 +3,7 @@
 use macroquad::prelude::*;
 use crate::entities::{Planet, Rocket};
 use crate::physics::GravitySimulator;
+use crate::systems::vehicle_manager::ReferenceBody;
 use crate::utils::vector_helper;
 
 /// Predicted trajectory point
@@ -37,8 +38,9 @@ impl TrajectoryPredictor {
     /// # Returns
     /// Vector of trajectory points and whether it self-intersects
     ///
-    /// Note: This simulation accounts for planet motion (e.g., Moon orbiting Earth)
-    /// during the trajectory prediction, providing accurate future positions.
+    /// Note: Uses unified physics simulation where all bodies (rocket, Earth, Moon)
+    /// are simulated together with identical time steps and force calculations.
+    /// Earth remains fixed as the inertial reference frame.
     pub fn predict_trajectory(
         &mut self,
         rocket: &Rocket,
@@ -50,19 +52,18 @@ impl TrajectoryPredictor {
         let mut points = Vec::with_capacity(steps);
         let mut self_intersects = false;
 
-        // Start with current rocket state
-        let mut position = rocket.position();
-        let mut velocity = rocket.velocity();
+        // Start with current rocket state in absolute coordinates
+        let mut rocket_pos = rocket.position();
+        let mut rocket_vel = rocket.velocity();
         let mut time = 0.0;
 
         // Create mutable copies of planet states (position, velocity, mass, radius)
-        // This allows us to simulate their motion during trajectory prediction
         let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = planets
             .iter()
             .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
             .collect();
 
-        // Identify Earth (largest planet) for pinning - it doesn't move
+        // Identify Earth (largest planet) - it stays fixed as our inertial reference
         let earth_index = planet_states
             .iter()
             .enumerate()
@@ -70,23 +71,27 @@ impl TrajectoryPredictor {
             .map(|(i, _)| i)
             .unwrap_or(0);
 
-        // Simulate forward in time
+        // Simulate forward in time using unified physics
         for _ in 0..steps {
             points.push(TrajectoryPoint {
-                position,
-                velocity,
+                position: rocket_pos,
+                velocity: rocket_vel,
                 time,
             });
 
-            // Step 1: Apply planet-to-planet gravity (e.g., Moon orbiting Earth)
-            // This updates planet velocities based on gravitational interactions
+            // === UNIFIED PHYSICS STEP ===
+
+            // Step 1: Calculate accelerations for all non-Earth planets (e.g., Moon from Earth)
+            // We do this first to match the Moon-reference approach
+            let mut planet_accels = vec![Vec2::ZERO; planet_states.len()];
+
             if planet_states.len() >= 2 {
                 for i in 0..planet_states.len() {
                     if i == earth_index {
-                        continue; // Earth is pinned, doesn't move
+                        continue; // Earth is fixed
                     }
 
-                    let mut planet_acceleration = Vec2::ZERO;
+                    let (planet_pos, _, planet_mass, planet_radius) = planet_states[i];
 
                     // Calculate gravity from all other planets
                     for j in 0..planet_states.len() {
@@ -94,60 +99,59 @@ impl TrajectoryPredictor {
                             continue;
                         }
 
-                        let (pos_i, _, mass_i, radius_i) = planet_states[i];
-                        let (pos_j, _, mass_j, _) = planet_states[j];
-
-                        let direction = pos_j - pos_i;
+                        let (other_pos, _, other_mass, _) = planet_states[j];
+                        let direction = other_pos - planet_pos;
                         let distance = vector_helper::magnitude(direction);
 
-                        if distance > radius_i {
+                        if distance > planet_radius {
                             let force = self.gravity_simulator.calculate_gravitational_force(
-                                pos_i, mass_i, pos_j, mass_j,
+                                planet_pos,
+                                planet_mass,
+                                other_pos,
+                                other_mass,
                             );
-                            planet_acceleration += force / mass_i;
+                            planet_accels[i] += force / planet_mass;
                         }
                     }
-
-                    // Update planet velocity
-                    planet_states[i].1 += planet_acceleration * time_step;
                 }
             }
 
-            // Step 2: Update planet positions based on their velocities
-            for i in 0..planet_states.len() {
-                if i != earth_index {
-                    let vel = planet_states[i].1; // Extract velocity first to avoid borrow checker issues
-                    planet_states[i].0 += vel * time_step;
-                }
-            }
-
-            // Step 3: Calculate rocket's acceleration from updated planet positions
-            let mut acceleration = Vec2::ZERO;
+            // Step 2: Calculate rocket's acceleration from all planets
+            let mut rocket_accel = Vec2::ZERO;
             for &(planet_pos, _, planet_mass, planet_radius) in &planet_states {
-                let direction = planet_pos - position;
+                let direction = planet_pos - rocket_pos;
                 let distance = vector_helper::magnitude(direction);
 
                 if distance > planet_radius {
-                    let force_vec = self.gravity_simulator.calculate_gravitational_force(
-                        position,
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        rocket_pos,
                         rocket.current_mass(),
                         planet_pos,
                         planet_mass,
                     );
-                    acceleration += force_vec / rocket.current_mass();
+                    rocket_accel += force / rocket.current_mass();
                 }
             }
 
-            // Step 4: Update rocket velocity and position
-            velocity += acceleration * time_step;
-            position += velocity * time_step;
+            // Step 3: Update rocket velocity and position
+            rocket_vel += rocket_accel * time_step;
+            rocket_pos += rocket_vel * time_step;
+
+            // Step 4: Update planet velocities and positions (except Earth)
+            for i in 0..planet_states.len() {
+                if i != earth_index {
+                    planet_states[i].1 += planet_accels[i] * time_step;
+                    let updated_vel = planet_states[i].1;
+                    planet_states[i].0 += updated_vel * time_step;
+                }
+            }
+
             time += time_step;
 
-            // Check for collision with planets at their predicted positions
+            // Check for collision with planets at their current positions
             let mut hit_planet = false;
             for &(planet_pos, _, _, planet_radius) in &planet_states {
-                let distance = vector_helper::magnitude(planet_pos - position);
-                // Add small buffer for collision detection
+                let distance = vector_helper::magnitude(planet_pos - rocket_pos);
                 if distance < planet_radius + 5.0 {
                     hit_planet = true;
                     break;
@@ -159,7 +163,168 @@ impl TrajectoryPredictor {
 
             // Check for self-intersection if requested
             if detect_self_intersection && points.len() > 20 {
-                if self.check_intersection(&points, position) {
+                if self.check_intersection(&points, rocket_pos) {
+                    self_intersects = true;
+                    break;
+                }
+            }
+        }
+
+        (points, self_intersects)
+    }
+
+    /// Predict trajectory with selectable reference body (Earth or Moon)
+    ///
+    /// # Arguments
+    /// * `rocket` - The rocket to predict trajectory for
+    /// * `planets` - All planets affecting gravity
+    /// * `time_step` - Time step for simulation (default: 0.5 seconds)
+    /// * `steps` - Number of steps to predict (default: 200)
+    /// * `detect_self_intersection` - Check if trajectory intersects itself
+    /// * `reference_body` - Which body to use as reference (Earth or Moon)
+    ///
+    /// # Returns
+    /// Vector of trajectory points (relative to reference body) and whether it self-intersects
+    ///
+    /// When Moon is selected, trajectory is calculated in Moon's non-inertial reference frame,
+    /// accounting for the Moon's acceleration from Earth's gravity as a fictitious force.
+    pub fn predict_trajectory_with_reference(
+        &mut self,
+        rocket: &Rocket,
+        planets: &[&Planet],
+        time_step: f32,
+        steps: usize,
+        detect_self_intersection: bool,
+        reference_body: ReferenceBody,
+    ) -> (Vec<TrajectoryPoint>, bool) {
+        // If Earth is selected, use standard Earth-centered prediction
+        if reference_body == ReferenceBody::Earth {
+            return self.predict_trajectory(
+                rocket,
+                planets,
+                time_step,
+                steps,
+                detect_self_intersection,
+            );
+        }
+
+        // For Moon reference, we need to simulate in the Moon's accelerating reference frame
+        // Find Earth and Moon indices
+        let mut earth_idx = 0;
+        let mut max_radius = 0.0f32;
+        for (i, planet) in planets.iter().enumerate() {
+            if planet.radius() > max_radius {
+                max_radius = planet.radius();
+                earth_idx = i;
+            }
+        }
+
+        let moon_idx = if planets.len() < 2 {
+            earth_idx // Fallback if no Moon
+        } else {
+            if earth_idx == 0 { 1 } else { 0 }
+        };
+
+        let mut points = Vec::with_capacity(steps);
+        let mut self_intersects = false;
+
+        // Start with current rocket state in absolute coordinates
+        let mut rocket_pos_abs = rocket.position();
+        let mut rocket_vel_abs = rocket.velocity();
+        let mut time = 0.0;
+
+        // Create mutable copies of planet states (position, velocity, mass, radius)
+        let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = planets
+            .iter()
+            .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+            .collect();
+
+        // Store Moon's initial position for drawing offset
+        let moon_initial_pos = planet_states[moon_idx].0;
+
+        // Simulate forward in time
+        for step in 0..steps {
+            // Get current Moon state
+            let (moon_pos, moon_vel, moon_mass, moon_radius) = planet_states[moon_idx];
+
+            // Transform rocket to Moon-relative coordinates for storage
+            let rocket_pos_moon_rel = rocket_pos_abs - moon_pos;
+            let rocket_pos_draw = rocket_pos_moon_rel + moon_initial_pos;
+
+            points.push(TrajectoryPoint {
+                position: rocket_pos_draw,
+                velocity: rocket_vel_abs - moon_vel, // Velocity relative to Moon
+                time,
+            });
+
+            // === PHYSICS STEP ===
+
+            // Step 1: Calculate Moon's acceleration from Earth
+            let moon_accel = if planet_states.len() >= 2 {
+                let (earth_pos, _, earth_mass, _) = planet_states[earth_idx];
+                let direction = earth_pos - moon_pos;
+                let distance = vector_helper::magnitude(direction);
+
+                if distance > moon_radius {
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        moon_pos,
+                        moon_mass,
+                        earth_pos,
+                        earth_mass,
+                    );
+                    force / moon_mass
+                } else {
+                    Vec2::ZERO
+                }
+            } else {
+                Vec2::ZERO
+            };
+
+            // Step 2: Calculate rocket's acceleration from all planets in absolute frame
+            let mut rocket_accel_abs = Vec2::ZERO;
+            for &(planet_pos, _, planet_mass, planet_radius) in &planet_states {
+                let direction = planet_pos - rocket_pos_abs;
+                let distance = vector_helper::magnitude(direction);
+
+                if distance > planet_radius {
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        rocket_pos_abs,
+                        rocket.current_mass(),
+                        planet_pos,
+                        planet_mass,
+                    );
+                    rocket_accel_abs += force / rocket.current_mass();
+                }
+            }
+
+            // Step 3: Update rocket velocity and position (absolute frame)
+            rocket_vel_abs += rocket_accel_abs * time_step;
+            rocket_pos_abs += rocket_vel_abs * time_step;
+
+            // Step 4: Update Moon's velocity and position (using same physics)
+            planet_states[moon_idx].1 += moon_accel * time_step;
+            let moon_updated_vel = planet_states[moon_idx].1; // Extract to avoid borrow checker issue
+            planet_states[moon_idx].0 += moon_updated_vel * time_step;
+
+            time += time_step;
+
+            // Check for collision with planets at their current positions
+            let mut hit_planet = false;
+            for &(planet_pos, _, _, planet_radius) in &planet_states {
+                let distance = vector_helper::magnitude(planet_pos - rocket_pos_abs);
+                if distance < planet_radius + 5.0 {
+                    hit_planet = true;
+                    break;
+                }
+            }
+            if hit_planet {
+                break;
+            }
+
+            // Check for self-intersection if requested
+            if detect_self_intersection && points.len() > 20 {
+                // Check intersection in Moon-relative coordinates (more accurate for Moon orbits)
+                if self.check_intersection(&points, rocket_pos_draw) {
                     self_intersects = true;
                     break;
                 }

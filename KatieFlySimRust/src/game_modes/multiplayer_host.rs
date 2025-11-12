@@ -25,6 +25,7 @@ struct ClientInputPacket {
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
     save_requested: bool, // true if client pressed F5 (quick save)
+    refuel_from_planet: bool, // true if client wants to refuel from planet (R key)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,6 +39,7 @@ struct ConnectedClient {
     addr: SocketAddr,
     player_id: u32,
     last_seen: f64, // Timestamp of last received packet
+    player_name: String, // Player's chosen name
 }
 
 pub struct MultiplayerHost {
@@ -51,6 +53,7 @@ pub struct MultiplayerHost {
     player_input: PlayerInput,
     player_state: PlayerInputState,
     active_rocket_id: Option<EntityId>,
+    host_player_name: String, // Host's player name
 
     // Networking
     socket: Arc<UdpSocket>,
@@ -58,6 +61,7 @@ pub struct MultiplayerHost {
     snapshot_timer: f32,
     next_player_id: u32, // Next available player ID for new clients
     port: u16, // UDP port this host is listening on
+    player_names: HashMap<u32, String>, // Map player IDs to player names
 
     // Game state
     window_size: Vec2,
@@ -73,6 +77,9 @@ pub struct MultiplayerHost {
     // Save celebration (F5 quick save)
     save_celebration_player_id: Option<u32>, // Which player triggered the save
     save_celebration_timer: f32,              // Time remaining for "what a save!!" text
+
+    // Refueling requests from clients
+    refueling_rockets: HashSet<EntityId>, // Rockets that are currently requesting planet refuel
 }
 
 impl MultiplayerHost {
@@ -116,7 +123,7 @@ impl MultiplayerHost {
     }
 
     /// Create a new multiplayer host
-    pub fn new(window_size: Vec2, port: u16) -> Result<Self, String> {
+    pub fn new(window_size: Vec2, player_name: String, port: u16) -> Result<Self, String> {
         // Bind UDP socket
         let socket = UdpSocket::bind(format!("0.0.0.0:{}", port))
             .map_err(|e| format!("Failed to bind UDP socket on port {}: {}", port, e))?;
@@ -125,7 +132,11 @@ impl MultiplayerHost {
         socket.set_nonblocking(true)
             .map_err(|e| format!("Failed to set non-blocking mode: {}", e))?;
 
-        log::info!("Multiplayer host listening on port {}", port);
+        log::info!("Multiplayer host '{}' listening on port {}", player_name, port);
+
+        // Initialize player names map with host's name
+        let mut player_names = HashMap::new();
+        player_names.insert(0, player_name.clone());
 
         Ok(Self {
             world: World::new(),
@@ -136,12 +147,14 @@ impl MultiplayerHost {
             player_input: PlayerInput::player1(), // Host uses Player 1 controls
             player_state: PlayerInputState::new(0), // Host is player 0
             active_rocket_id: None,
+            host_player_name: player_name,
 
             socket: Arc::new(socket),
             clients: Arc::new(Mutex::new(HashMap::new())),
             snapshot_timer: 0.0,
             next_player_id: 1, // Host is player 0, clients start at 1
             port,
+            player_names,
 
             window_size,
             paused: false,
@@ -154,6 +167,8 @@ impl MultiplayerHost {
 
             save_celebration_player_id: None,
             save_celebration_timer: 0.0,
+
+            refueling_rockets: HashSet::new(),
         })
     }
 
@@ -339,6 +354,10 @@ impl MultiplayerHost {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // F - save game
         if is_key_pressed(KeyCode::F) {
@@ -500,6 +519,13 @@ impl MultiplayerHost {
             if input.save_requested {
                 self.quick_save(input.player_id);
             }
+
+            // Refuel from planet if requested (R key)
+            if input.refuel_from_planet {
+                self.refueling_rockets.insert(rid);
+            } else {
+                self.refueling_rockets.remove(&rid);
+            }
         }
     }
 
@@ -514,6 +540,18 @@ impl MultiplayerHost {
 
         // Update physics
         self.world.update(delta_time);
+
+        // Handle manual planet refueling for host (player 0) if R key is held
+        if let Some(rocket_id) = self.active_rocket_id {
+            if is_key_down(KeyCode::R) {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
+
+        // Handle manual planet refueling for clients
+        for rocket_id in &self.refueling_rockets {
+            self.world.handle_manual_planet_refuel(*rocket_id, delta_time);
+        }
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
@@ -590,17 +628,39 @@ impl MultiplayerHost {
                     let mut clients = self.clients.lock().unwrap();
 
                     if !clients.contains_key(&src_addr) && self.next_player_id < 20 {
-                        // New client joining
+                        // New client joining - try to parse join packet with player name
                         let player_id = self.next_player_id;
                         self.next_player_id += 1;
+
+                        // Try to deserialize as JoinPacket to get player name
+                        #[derive(Deserialize)]
+                        struct JoinPacket {
+                            player_name: String,
+                        }
+
+                        let player_name = if let Ok(join_packet) = bincode::deserialize::<JoinPacket>(&buf[..size]) {
+                            // Successfully parsed join packet with name
+                            if join_packet.player_name.trim().is_empty() {
+                                format!("Player {}", player_id) // Fallback if name is empty
+                            } else {
+                                join_packet.player_name
+                            }
+                        } else {
+                            // Fallback for old-style JOIN or keepalive packets
+                            format!("Player {}", player_id)
+                        };
 
                         clients.insert(src_addr, ConnectedClient {
                             addr: src_addr,
                             player_id,
                             last_seen: get_time(),
+                            player_name: player_name.clone(),
                         });
 
-                        log::info!("New client connected: {} assigned player_id {}", src_addr, player_id);
+                        // Add player name to the names map
+                        self.player_names.insert(player_id, player_name.clone());
+
+                        log::info!("New client '{}' connected from {} assigned player_id {}", player_name, src_addr, player_id);
 
                         // Spawn a rocket for this player at their designated angle
                         drop(clients); // Drop the lock before spawning
@@ -661,6 +721,9 @@ impl MultiplayerHost {
         // Save player state (host is player 0)
         save_data.player_id = Some(0);
         save_data.active_rocket_id = self.active_rocket_id;
+
+        // Save player names (for network map display on clients)
+        save_data.player_names = self.player_names.clone();
 
         // Save camera state
         save_data.camera = SavedCamera {
@@ -868,9 +931,11 @@ impl MultiplayerHost {
             draw_circle(map_pos.x, map_pos.y, rocket_size, player_color);
             draw_circle_lines(map_pos.x, map_pos.y, rocket_size, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
 
-            // Label
+            // Label (show player name if available, otherwise P{id})
             if let Some(player_id) = rocket.player_id() {
-                let label = format!("P{}", player_id);
+                let label = self.player_names.get(&player_id)
+                    .map(|name| name.clone())
+                    .unwrap_or_else(|| format!("P{}", player_id));
                 draw_text(&label, map_pos.x - 10.0, map_pos.y - 10.0, 12.0, WHITE);
             }
         }

@@ -4,7 +4,7 @@
 use macroquad::prelude::*;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::entities::{GameObject, Planet, Rocket, Satellite};
@@ -24,6 +24,7 @@ struct ClientInputPacket {
     convert_to_satellite: bool,
     shoot_bullet: bool,   // true if client wants to shoot
     save_requested: bool, // true if client pressed F5 (quick save)
+    refuel_from_planet: bool, // true if client wants to refuel from planet (R key)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -45,6 +46,7 @@ pub struct MultiplayerClient {
     player_input: PlayerInput,
     player_state: PlayerInputState,
     player_id: u32, // Assigned by host
+    player_name: String, // This client's player name
     active_rocket_id: Option<EntityId>,
 
     // Networking
@@ -53,6 +55,7 @@ pub struct MultiplayerClient {
     keepalive_timer: f32,
     last_snapshot_time: f64,
     connected: bool,
+    player_names: HashMap<u32, String>, // Map player IDs to player names
 
     // Game state
     window_size: Vec2,
@@ -110,7 +113,7 @@ impl MultiplayerClient {
     }
 
     /// Create a new multiplayer client and connect to host
-    pub fn new(window_size: Vec2, host_ip: &str, host_port: u16) -> Result<Self, String> {
+    pub fn new(window_size: Vec2, player_name: String, host_ip: &str, host_port: u16) -> Result<Self, String> {
         // Bind to any available local port
         let socket = UdpSocket::bind("0.0.0.0:0")
             .map_err(|e| format!("Failed to bind UDP socket: {}", e))?;
@@ -124,12 +127,26 @@ impl MultiplayerClient {
             .parse()
             .map_err(|e| format!("Invalid host address: {}", e))?;
 
-        log::info!("Multiplayer client connecting to {}:{}", host_ip, host_port);
+        log::info!("Multiplayer client '{}' connecting to {}:{}", player_name, host_ip, host_port);
 
-        // Send initial join packet
-        let join_packet = b"JOIN";
-        socket.send_to(join_packet, host_addr)
+        // Send initial join packet with player name
+        #[derive(Serialize)]
+        struct JoinPacket {
+            player_name: String,
+        }
+
+        let join_data = JoinPacket {
+            player_name: player_name.clone(),
+        };
+
+        let join_packet = bincode::serialize(&join_data)
+            .map_err(|e| format!("Failed to serialize join packet: {}", e))?;
+        socket.send_to(&join_packet, host_addr)
             .map_err(|e| format!("Failed to send join packet: {}", e))?;
+
+        // Initialize player names map with this client's name (will be updated with actual player_id later)
+        let mut player_names = HashMap::new();
+        player_names.insert(1, player_name.clone()); // Temporary ID 1, will be updated
 
         Ok(Self {
             world: World::new(),
@@ -140,6 +157,7 @@ impl MultiplayerClient {
             player_input: PlayerInput::player1(), // Client uses standard controls
             player_state: PlayerInputState::new(1), // Temporary, will be updated when assigned
             player_id: 1, // Temporary, will be assigned by host from snapshot
+            player_name,
             active_rocket_id: None,
 
             socket: Arc::new(socket),
@@ -147,6 +165,7 @@ impl MultiplayerClient {
             keepalive_timer: 0.0,
             last_snapshot_time: get_time(),
             connected: false,
+            player_names,
 
             window_size,
             paused: false,
@@ -251,6 +270,10 @@ impl MultiplayerClient {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // F5 - quick save (sends request to host)
         // Note: F5 will be sent to host via input packet in handle_player_controls()
@@ -327,6 +350,9 @@ impl MultiplayerClient {
                 self.save_celebration_timer = 5.0;
             }
 
+            // Refuel from planet (R key)
+            let refuel_from_planet = is_key_down(KeyCode::R);
+
             // Send input packet to host
             let input_packet = ClientInputPacket {
                 player_id: self.player_id,
@@ -335,6 +361,7 @@ impl MultiplayerClient {
                 convert_to_satellite,
                 shoot_bullet,
                 save_requested,
+                refuel_from_planet,
             };
 
             if let Ok(bytes) = bincode::serialize(&input_packet) {
@@ -531,6 +558,11 @@ impl MultiplayerClient {
             self.world.add_bullet_with_id(id, bullet);
         }
 
+        // Update player names from snapshot (includes host and all connected clients)
+        for (player_id, player_name) in snapshot.player_names {
+            self.player_names.insert(player_id, player_name);
+        }
+
         // Update our active rocket to the one that belongs to us
         if let Some(rocket_id) = my_rocket_id {
             self.active_rocket_id = Some(rocket_id);
@@ -676,9 +708,11 @@ impl MultiplayerClient {
             draw_circle(map_pos.x, map_pos.y, rocket_size, player_color);
             draw_circle_lines(map_pos.x, map_pos.y, rocket_size, 2.0, Color::new(0.0, 1.0, 0.0, 1.0));
 
-            // Label
+            // Label (show player name if available, otherwise P{id})
             if let Some(player_id) = rocket.player_id() {
-                let label = format!("P{}", player_id);
+                let label = self.player_names.get(&player_id)
+                    .map(|name| name.clone())
+                    .unwrap_or_else(|| format!("P{}", player_id));
                 draw_text(&label, map_pos.x - 10.0, map_pos.y - 10.0, 12.0, WHITE);
             }
         }

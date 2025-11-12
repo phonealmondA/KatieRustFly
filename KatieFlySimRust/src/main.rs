@@ -64,6 +64,10 @@ async fn main() {
     let mut multiplayer_host: Option<MultiplayerHost> = None;
     let mut multiplayer_client: Option<MultiplayerClient> = None;
 
+    // Store player name and port from menus
+    let mut host_player_name: Option<String> = None;
+    let mut host_port: Option<u16> = None;
+
     // Frame tracking
     let mut frame_count = 0u64;
     let mut fps_timer = 0.0f32;
@@ -205,9 +209,8 @@ async fn main() {
                 let result = online_multiplayer_menu.update();
                 match result {
                     OnlineMultiplayerMenuResult::Host => {
-                        log::info!("Host selected - showing multiplayer saves menu");
-                        game_state = GameState::MultiplayerSavesMenu;
-                        multiplayer_saves_menu.refresh_saves();
+                        log::info!("Host selected - showing host configuration menu");
+                        game_state = GameState::OnlineHostMenu;
                     }
                     OnlineMultiplayerMenuResult::Join => {
                         log::info!("Join selected - showing join menu");
@@ -224,8 +227,10 @@ async fn main() {
             GameState::OnlineHostMenu => {
                 let result = online_host_menu.update();
                 match result {
-                    OnlineHostMenuResult::StartHost(_port) => {
-                        log::info!("Proceeding to multiplayer saves menu");
+                    OnlineHostMenuResult::StartHost(player_name, port) => {
+                        log::info!("Host '{}' proceeding to multiplayer saves menu on port {}", player_name, port);
+                        host_player_name = Some(player_name);
+                        host_port = Some(port);
                         game_state = GameState::MultiplayerSavesMenu;
                         multiplayer_saves_menu.refresh_saves();
                     }
@@ -241,8 +246,9 @@ async fn main() {
                 let result = multiplayer_saves_menu.update();
                 match result {
                     MultiplayerSavesMenuResult::NewGame(port) => {
-                        log::info!("Starting new multiplayer game on port {}", port);
-                        match MultiplayerHost::new(window_size, port) {
+                        let player_name = host_player_name.as_deref().unwrap_or("Host");
+                        log::info!("Starting new multiplayer game '{}' on port {}", player_name, port);
+                        match MultiplayerHost::new(window_size, player_name.to_string(), port) {
                             Ok(mut host) => {
                                 host.initialize_new_game();
                                 multiplayer_host = Some(host);
@@ -255,10 +261,11 @@ async fn main() {
                         }
                     }
                     MultiplayerSavesMenuResult::LoadGame(save_name, port) => {
-                        log::info!("Loading multiplayer game: {} on port {}", save_name, port);
+                        let player_name = host_player_name.as_deref().unwrap_or("Host");
+                        log::info!("Loading multiplayer game '{}': {} on port {}", player_name, save_name, port);
                         match GameSaveData::load_from_multi_file(&save_name) {
                             Ok(save_data) => {
-                                match MultiplayerHost::new(window_size, port) {
+                                match MultiplayerHost::new(window_size, player_name.to_string(), port) {
                                     Ok(mut host) => {
                                         host.load_from_save(save_data, save_name);
                                         multiplayer_host = Some(host);
@@ -287,9 +294,9 @@ async fn main() {
             GameState::OnlineJoinMenu => {
                 let result = online_join_menu.update();
                 match result {
-                    OnlineJoinMenuResult::Connect(ip, port) => {
-                        log::info!("Connecting to {}:{}", ip, port);
-                        match MultiplayerClient::new(window_size, &ip, port) {
+                    OnlineJoinMenuResult::Connect(player_name, ip, port) => {
+                        log::info!("'{}' connecting to {}:{}", player_name, ip, port);
+                        match MultiplayerClient::new(window_size, player_name, &ip, port) {
                             Ok(client) => {
                                 multiplayer_client = Some(client);
                                 game_state = GameState::MultiplayerClient;

@@ -784,6 +784,60 @@ impl World {
         }
     }
 
+    /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
+    pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) -> bool {
+        // Get rocket reference to check position and fuel status
+        let rocket = match self.rockets.get(&rocket_id) {
+            Some(r) => r,
+            None => return false,
+        };
+
+        // Skip if rocket is already full
+        if rocket.current_fuel() >= rocket.max_fuel() {
+            return false;
+        }
+
+        let rocket_pos = rocket.position();
+        let fuel_needed = rocket.max_fuel() - rocket.current_fuel();
+
+        // Find nearest planet that can provide fuel
+        let mut nearest_planet: Option<(EntityId, f32)> = None;
+        let mut min_distance = f32::MAX;
+
+        for (planet_id, planet) in &self.planets {
+            // Check if planet can provide fuel
+            if !planet.can_collect_fuel() {
+                continue;
+            }
+
+            // Check distance
+            let distance = (rocket_pos - planet.position()).length();
+            let collection_range = planet.fuel_collection_range();
+
+            if distance <= collection_range && distance < min_distance {
+                min_distance = distance;
+                nearest_planet = Some((*planet_id, distance));
+            }
+        }
+
+        // If found a planet in range, transfer fuel
+        if let Some((_planet_id, _distance)) = nearest_planet {
+            // Calculate transfer amount (use FUEL_COLLECTION_RATE for planets)
+            let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
+            let transfer_amount = transfer_rate.min(fuel_needed);
+
+            if transfer_amount > 0.0 {
+                // Add fuel to rocket (planets have infinite fuel, they don't lose mass)
+                if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                    rocket.add_fuel(transfer_amount);
+                    return true; // Successfully refueling
+                }
+            }
+        }
+
+        false // Not refueling
+    }
+
     // === Satellite Network Statistics ===
 
     /// Get satellite network statistics for UI display

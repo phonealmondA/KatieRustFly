@@ -45,6 +45,9 @@ pub struct SinglePlayerGame {
     // Network map view
     show_network_map: bool,
     marked_satellites: HashSet<EntityId>,
+
+    // Save celebration (F5 quick save)
+    save_celebration_timer: f32,  // Time remaining for "what a save!!" text
 }
 
 impl SinglePlayerGame {
@@ -70,6 +73,7 @@ impl SinglePlayerGame {
             rocket_spawn_velocity: Vec2::ZERO,
             show_network_map: false,
             marked_satellites: HashSet::new(),
+            save_celebration_timer: 0.0,
         }
     }
 
@@ -253,6 +257,22 @@ impl SinglePlayerGame {
         save_data
     }
 
+    /// Quick save triggered by F5 key - saves and shows "what a save!!" celebration
+    fn quick_save(&mut self) {
+        match self.save_game("quicksave") {
+            Ok(_) => {
+                log::info!("Quick save successful");
+                self.current_save_name = Some("quicksave".to_string());
+
+                // Trigger save celebration
+                self.save_celebration_timer = 5.0; // Show for 5 seconds
+            }
+            Err(e) => {
+                log::error!("Failed to quick save: {}", e);
+            }
+        }
+    }
+
     /// Handle input for game controls
     pub fn handle_input(&mut self) -> SinglePlayerResult {
         // Check for escape to return to menu or close popups
@@ -396,11 +416,9 @@ impl SinglePlayerGame {
             self.is_paused = !self.is_paused;
         }
 
-        // Quick save
+        // Quick save (F5 key) - saves and shows "what a save!!" celebration
         if is_key_pressed(KeyCode::F5) {
-            if let Err(e) = self.save_game("quicksave") {
-                log::error!("Failed to quick save: {}", e);
-            }
+            self.quick_save();
         }
 
         // Panel visibility toggles (keys 1-5)
@@ -443,6 +461,10 @@ impl SinglePlayerGame {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // Mouse wheel zoom (reduced delta for finer control)
         let mouse_wheel = mouse_wheel().1;
@@ -475,6 +497,36 @@ impl SinglePlayerGame {
 
         // Update world (physics, entities)
         self.world.update(delta_time);
+
+        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        let destroyed_rockets = self.world.take_destroyed_rockets();
+        for destroyed in destroyed_rockets {
+            log::info!("Rocket destroyed by bullet, respawning");
+
+            // Spawn new rocket at the starting position
+            let new_rocket = Rocket::new(
+                self.rocket_spawn_position,
+                self.rocket_spawn_velocity,
+                WHITE,
+                GameConstants::ROCKET_BASE_MASS,
+            );
+
+            let new_rocket_id = self.world.add_rocket(new_rocket);
+            self.world.set_active_rocket(Some(new_rocket_id));
+            log::info!("New rocket {} spawned at starting position", new_rocket_id);
+        }
+
+        // Update save celebration timer
+        if self.save_celebration_timer > 0.0 {
+            self.save_celebration_timer -= delta_time;
+        }
+
+        // Handle manual planet refueling (R key)
+        if let Some(rocket_id) = self.world.active_rocket_id() {
+            if is_key_down(KeyCode::R) {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
 
         // Update camera to follow active rocket
         if let Some(rocket) = self.world.get_active_rocket() {
@@ -554,8 +606,8 @@ impl SinglePlayerGame {
             }
         }
 
-        // Shoot bullet (X key)
-        if is_key_pressed(KeyCode::X) {
+        // Shoot bullet (W key, same as multiplayer)
+        if is_key_pressed(KeyCode::W) {
             if let Some(rocket_id) = self.world.active_rocket_id() {
                 if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rocket_id) {
                     log::info!("Bullet {} fired from rocket {}", bullet_id, rocket_id);
@@ -973,6 +1025,14 @@ impl SinglePlayerGame {
             }
         }
 
+        // Store celebration rocket position for screen-space rendering
+        let celebration_screen_pos = if self.save_celebration_timer > 0.0 {
+            self.world.get_active_rocket()
+                .map(|rocket| self.camera.world_to_screen(rocket.position()))
+        } else {
+            None
+        };
+
         // Reset to default camera for HUD
         set_default_camera();
 
@@ -1001,6 +1061,30 @@ impl SinglePlayerGame {
 
         // Draw visualization HUD (shows T and G key status)
         self.vehicle_manager.draw_visualization_hud();
+
+        // Draw "what a save!!" celebration text in screen space
+        if let Some(screen_pos) = celebration_screen_pos {
+            let text = "what a save!!";
+            let text_size = 30.0;
+            let text_offset_y = -80.0; // Above rocket (in screen space, negative is up)
+
+            // Calculate text dimensions for centering
+            let text_dims = measure_text(text, None, text_size as u16, 1.0);
+            let text_x = screen_pos.x - text_dims.width / 2.0;
+            let text_y = screen_pos.y + text_offset_y;
+
+            // Draw shadow/outline
+            for dx in &[-2.0, 0.0, 2.0] {
+                for dy in &[-2.0, 0.0, 2.0] {
+                    if *dx != 0.0 || *dy != 0.0 {
+                        draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                    }
+                }
+            }
+
+            // Draw main text (yellow/gold color)
+            draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+        }
 
         // Draw pause indicator if paused (but not if showing controls)
         if self.is_paused && !self.show_controls {
@@ -1079,7 +1163,7 @@ impl SinglePlayerGame {
                 ("E", "Zoom out"),
                 ("MOUSE WHEEL", "Zoom"),
                 ("C", "Convert to satellite"),
-                ("X", "Shoot bullet"),
+                ("W", "Shoot bullet"),
                 ("P", "Pause/Unpause"),
             ];
 

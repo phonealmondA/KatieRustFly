@@ -59,6 +59,9 @@ pub struct SplitScreenGame {
     // Starting positions
     rocket_spawn_position: Vec2,
     rocket_spawn_velocity: Vec2,
+
+    // Save celebration (F5 quick save)
+    save_celebration_timer: f32,  // Time remaining for "what a save!!" text
 }
 
 impl SplitScreenGame {
@@ -96,6 +99,7 @@ impl SplitScreenGame {
             auto_save_interval: 60.0,
             rocket_spawn_position: Vec2::ZERO,
             rocket_spawn_velocity: Vec2::ZERO,
+            save_celebration_timer: 0.0,
         }
     }
 
@@ -251,6 +255,61 @@ impl SplitScreenGame {
         );
     }
 
+    /// Quick save triggered by F5 key - saves and shows "what a save!!" celebration
+    fn quick_save(&mut self) {
+        let save_data = self.create_save_data();
+
+        match save_data.save_to_file("quicksave_splitscreen") {
+            Ok(_) => {
+                log::info!("Quick save successful (split screen)");
+                self.current_save_name = Some("quicksave_splitscreen".to_string());
+
+                // Trigger save celebration
+                self.save_celebration_timer = 5.0; // Show for 5 seconds
+            }
+            Err(e) => {
+                log::error!("Failed to quick save: {}", e);
+            }
+        }
+    }
+
+    /// Create save data snapshot from current game state
+    fn create_save_data(&self) -> GameSaveData {
+        let mut save_data = GameSaveData::new();
+        save_data.game_time = self.game_time;
+
+        // Save all planets with their IDs
+        use crate::save_system::SavedPlanet;
+        save_data.planets = self.world.planets_with_ids()
+            .map(|(id, planet)| SavedPlanet::from_planet(id, planet))
+            .collect();
+
+        // Save all rockets with their IDs
+        use crate::save_system::SavedRocket;
+        save_data.rockets = self.world.rockets_with_ids()
+            .map(|(id, rocket)| SavedRocket::from_rocket(id, rocket))
+            .collect();
+
+        // Save all satellites with their IDs
+        use crate::save_system::SavedSatellite;
+        save_data.satellites = self.world.satellites_with_ids()
+            .map(|(id, satellite)| SavedSatellite::from_satellite(id, satellite))
+            .collect();
+
+        // Save Player 1's rocket as active (split screen uses Player 1 as primary)
+        save_data.player_id = Some(0);
+        save_data.active_rocket_id = self.player1_rocket_id;
+
+        // Save camera state
+        use crate::save_system::SavedCamera;
+        save_data.camera = SavedCamera {
+            center: self.camera.camera().target.into(),
+            zoom: self.camera.zoom_level(),
+        };
+
+        save_data
+    }
+
     /// Update camera based on current mode
     fn update_camera_for_mode(&mut self) {
         match self.camera_mode {
@@ -331,6 +390,31 @@ impl SplitScreenGame {
         if is_key_pressed(KeyCode::Key9) {
             self.player1_info_display.hide_all_panels();
             self.player2_info_display.hide_all_panels();
+        }
+
+        // Visualization toggles (shared for both players)
+        if is_key_pressed(KeyCode::T) {
+            self.vehicle_manager.toggle_trajectory();
+            log::info!("Toggled trajectory visualization: {}", self.vehicle_manager.visualization().show_trajectory);
+        }
+        if is_key_pressed(KeyCode::G) {
+            self.vehicle_manager.toggle_gravity_forces();
+            log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
+        }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
+
+        // Quick save (F5 key) - saves and shows "what a save!!" celebration
+        if is_key_pressed(KeyCode::F5) {
+            self.quick_save();
+        }
+
+        // Pause/unpause (P key, only if controls not showing)
+        if is_key_pressed(KeyCode::P) && !self.show_controls {
+            self.is_paused = !self.is_paused;
+            log::info!("Game {}", if self.is_paused { "paused" } else { "unpaused" });
         }
 
         // Mouse wheel zoom - always works, switches to ShowBoth mode with manual zoom
@@ -459,6 +543,21 @@ impl SplitScreenGame {
                     }
                 }
             }
+
+            // Shoot bullet (S for Player 1, Down for Player 2)
+            let shoot_pressed = if player_index == 0 {
+                is_key_pressed(KeyCode::S)
+            } else {
+                is_key_pressed(KeyCode::Down)
+            };
+
+            if shoot_pressed {
+                if let Some(bullet_id) = self.world.shoot_bullet_from_rocket(rid) {
+                    log::info!("Player {} fired bullet {}", input.player_id, bullet_id);
+                } else {
+                    log::debug!("Player {} cannot shoot: not enough fuel", input.player_id);
+                }
+            }
         }
     }
 
@@ -489,6 +588,67 @@ impl SplitScreenGame {
 
         // Update world physics
         self.world.update(delta_time);
+
+        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        let destroyed_rockets = self.world.take_destroyed_rockets();
+        for destroyed in destroyed_rockets {
+            let player_id = destroyed.player_id.unwrap_or(0);
+            log::info!("Player {} rocket destroyed by bullet, respawning", player_id);
+
+            // Determine spawn position based on player (Player 2 at +5 degrees from Player 1)
+            let (spawn_pos, spawn_vel, color) = if player_id == 0 {
+                (self.rocket_spawn_position, self.rocket_spawn_velocity, Color::from_rgba(255, 100, 100, 255))
+            } else {
+                let offset_angle = 5.0_f32.to_radians();
+                let center = Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y);
+
+                let rel_pos = self.rocket_spawn_position - center;
+                let rotated_x = rel_pos.x * offset_angle.cos() - rel_pos.y * offset_angle.sin();
+                let rotated_y = rel_pos.x * offset_angle.sin() + rel_pos.y * offset_angle.cos();
+                let p2_pos = center + Vec2::new(rotated_x, rotated_y);
+
+                let vel_x = self.rocket_spawn_velocity.x * offset_angle.cos() - self.rocket_spawn_velocity.y * offset_angle.sin();
+                let vel_y = self.rocket_spawn_velocity.x * offset_angle.sin() + self.rocket_spawn_velocity.y * offset_angle.cos();
+                let p2_vel = Vec2::new(vel_x, vel_y);
+
+                (p2_pos, p2_vel, Color::from_rgba(100, 100, 255, 255))
+            };
+
+            // Spawn new rocket for this player
+            let new_rocket = Rocket::new(
+                spawn_pos,
+                spawn_vel,
+                color,
+                GameConstants::ROCKET_BASE_MASS,
+            );
+
+            let new_rocket_id = self.world.add_rocket(new_rocket);
+
+            // Update the appropriate player's rocket ID
+            if player_id == 0 {
+                self.player1_rocket_id = Some(new_rocket_id);
+                self.world.set_active_rocket(Some(new_rocket_id));
+            } else {
+                self.player2_rocket_id = Some(new_rocket_id);
+            }
+
+            log::info!("Respawned new rocket {} for player {}", new_rocket_id, player_id);
+        }
+
+        // Update save celebration timer
+        if self.save_celebration_timer > 0.0 {
+            self.save_celebration_timer -= delta_time;
+        }
+
+        // Handle manual planet refueling (R key for both players - shared key)
+        if is_key_down(KeyCode::R) {
+            if let Some(rocket_id) = self.player1_rocket_id {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+            if let Some(rocket_id) = self.player2_rocket_id {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+            }
+        }
 
         // Update game time
         self.game_time += delta_time;
@@ -537,8 +697,41 @@ impl SplitScreenGame {
             }
         }
 
+        // Store celebration rocket position for screen-space rendering (Player 1's rocket)
+        let celebration_screen_pos = if self.save_celebration_timer > 0.0 {
+            self.player1_rocket_id
+                .and_then(|rid| self.world.get_rocket(rid))
+                .map(|rocket| self.camera.world_to_screen(rocket.position()))
+        } else {
+            None
+        };
+
         // Reset to default camera for UI
         set_default_camera();
+
+        // Draw "what a save!!" celebration text in screen space
+        if let Some(screen_pos) = celebration_screen_pos {
+            let text = "what a save!!";
+            let text_size = 30.0;
+            let text_offset_y = -80.0; // Above rocket (in screen space, negative is up)
+
+            // Calculate text dimensions for centering
+            let text_dims = measure_text(text, None, text_size as u16, 1.0);
+            let text_x = screen_pos.x - text_dims.width / 2.0;
+            let text_y = screen_pos.y + text_offset_y;
+
+            // Draw shadow/outline
+            for dx in &[-2.0, 0.0, 2.0] {
+                for dy in &[-2.0, 0.0, 2.0] {
+                    if *dx != 0.0 || *dy != 0.0 {
+                        draw_text(text, text_x + dx, text_y + dy, text_size, BLACK);
+                    }
+                }
+            }
+
+            // Draw main text (yellow/gold color)
+            draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+        }
 
         // Draw UI
         self.draw_ui();
@@ -646,6 +839,7 @@ impl SplitScreenGame {
             ("Z", "Decrease Thrust", "COMMA"),
             ("X", "Increase Thrust", "PERIOD"),
             ("C", "Convert to Satellite", "]"),
+            ("S", "Shoot Bullet", "DOWN"),
             ("Q", "Zoom In", "/"),
             ("E", "Zoom Out", "'"),
             ("R", "Focus Camera (10s)", ";"),
