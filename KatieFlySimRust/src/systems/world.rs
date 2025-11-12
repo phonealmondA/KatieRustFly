@@ -699,6 +699,11 @@ impl World {
         let mut collections = Vec::new();
 
         for (sat_id, satellite) in &self.satellites {
+            // Skip if satellite is already full
+            if satellite.current_fuel() >= satellite.max_fuel() {
+                continue;
+            }
+
             for (planet_id, planet) in &self.planets {
                 // Check if planet can provide fuel
                 if planet.mass() < GameConstants::MIN_PLANET_MASS_FOR_COLLECTION {
@@ -710,18 +715,33 @@ impl World {
                 let collection_range = planet.radius() + GameConstants::FUEL_COLLECTION_RANGE;
 
                 if distance <= collection_range {
-                    // Calculate fuel to collect
-                    let fuel_amount = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-                    collections.push((*sat_id, fuel_amount));
+                    // Calculate desired fuel amount
+                    let fuel_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
+                    let fuel_capacity = satellite.max_fuel() - satellite.current_fuel();
+                    let desired_amount = fuel_rate.min(fuel_capacity);
+
+                    // Calculate safe transfer amount (don't deplete planet below minimum viable mass)
+                    let max_safe_transfer = (planet.mass() - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
+                    let fuel_amount = desired_amount.min(max_safe_transfer);
+
+                    if fuel_amount > 0.0 {
+                        collections.push((*sat_id, *planet_id, fuel_amount));
+                    }
                     break; // Only collect from one planet at a time
                 }
             }
         }
 
-        // Apply fuel collection
-        for (sat_id, fuel_amount) in collections {
+        // Apply fuel collection and planet mass depletion
+        for (sat_id, planet_id, fuel_amount) in collections {
             if let Some(satellite) = self.satellites.get_mut(&sat_id) {
                 satellite.add_fuel(fuel_amount);
+            }
+
+            // Deplete planet mass by the same amount (1:1 ratio)
+            if let Some(planet) = self.planets.get_mut(&planet_id) {
+                let new_mass = planet.mass() - fuel_amount;
+                planet.set_mass(new_mass); // This automatically updates radius
             }
         }
     }
@@ -821,15 +841,27 @@ impl World {
         }
 
         // If found a planet in range, transfer fuel
-        if let Some((_planet_id, _distance)) = nearest_planet {
-            // Calculate transfer amount (use FUEL_COLLECTION_RATE for planets)
+        if let Some((nearest_planet_id, _distance)) = nearest_planet {
+            // Calculate base transfer amount (use FUEL_COLLECTION_RATE for planets)
             let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-            let transfer_amount = transfer_rate.min(fuel_needed);
+            let desired_transfer = transfer_rate.min(fuel_needed);
+
+            // Calculate safe transfer amount (don't deplete planet below minimum viable mass)
+            let planet = self.planets.get(&nearest_planet_id).unwrap();
+            let max_safe_transfer = (planet.mass() - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
+            let transfer_amount = desired_transfer.min(max_safe_transfer);
 
             if transfer_amount > 0.0 {
-                // Add fuel to rocket (planets have infinite fuel, they don't lose mass)
+                // Add fuel to rocket
                 if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
                     rocket.add_fuel(transfer_amount);
+
+                    // Deplete planet mass by the same amount (1:1 ratio)
+                    if let Some(planet) = self.planets.get_mut(&nearest_planet_id) {
+                        let new_mass = planet.mass() - transfer_amount;
+                        planet.set_mass(new_mass); // This automatically updates radius
+                    }
+
                     return true; // Successfully refueling
                 }
             }

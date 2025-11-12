@@ -59,6 +59,9 @@ impl GameConstants {
     pub const FUEL_COLLECTION_MASS_RATIO: f32 = 150.0;
     pub const MIN_PLANET_MASS_FOR_COLLECTION: f32 = 50.0;
 
+    // Planet mass depletion system
+    pub const MIN_VIABLE_PLANET_MASS: f32 = 1000.0;  // Planets cannot be depleted below this mass
+
     // Fuel collection ring visual
     pub const FUEL_RING_THICKNESS: f32 = 3.0;
 
