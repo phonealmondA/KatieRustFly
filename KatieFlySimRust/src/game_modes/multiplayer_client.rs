@@ -558,6 +558,11 @@ impl MultiplayerClient {
             self.world.add_bullet_with_id(id, bullet);
         }
 
+        // Update player names from snapshot (includes host and all connected clients)
+        for (player_id, player_name) in snapshot.player_names {
+            self.player_names.insert(player_id, player_name);
+        }
+
         // Update our active rocket to the one that belongs to us
         if let Some(rocket_id) = my_rocket_id {
             self.active_rocket_id = Some(rocket_id);

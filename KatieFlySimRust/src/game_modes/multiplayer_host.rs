@@ -722,6 +722,9 @@ impl MultiplayerHost {
         save_data.player_id = Some(0);
         save_data.active_rocket_id = self.active_rocket_id;
 
+        // Save player names (for network map display on clients)
+        save_data.player_names = self.player_names.clone();
+
         // Save camera state
         save_data.camera = SavedCamera {
             center: self.camera.camera().target.into(),

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use macroquad::prelude::*;
 use std::fs;
 use std::path::Path;
+use std::collections::HashMap;
 
 use crate::entities::{Planet, Rocket, Satellite, Bullet};
 use crate::systems::EntityId;
@@ -268,6 +269,7 @@ pub struct GameSaveData {
     // Player state (multiplayer support)
     pub player_id: Option<u32>,      // None = single player, 0-19 = multiplayer
     pub active_rocket_id: Option<EntityId>,
+    pub player_names: HashMap<u32, String>, // Map player IDs to player names (for multiplayer)
 
     // Camera (per-client, not synced in multiplayer)
     pub camera: SavedCamera,
@@ -288,6 +290,7 @@ impl GameSaveData {
             bullets: Vec::new(),
             player_id: None,  // Single player by default
             active_rocket_id: None,
+            player_names: HashMap::new(), // Empty by default
             camera: SavedCamera {
                 center: SavedVector2 { x: 0.0, y: 0.0 },
                 zoom: 1.0,
