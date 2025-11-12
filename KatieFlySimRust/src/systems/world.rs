@@ -806,85 +806,53 @@ impl World {
 
     /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
     pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) -> bool {
-        log::info!("=== REFUEL CALLED ===");
-
-        // Get rocket reference to check position and fuel status
-        let rocket = match self.rockets.get(&rocket_id) {
-            Some(r) => r,
-            None => {
-                log::info!("No rocket found");
-                return false;
+        // Get rocket info
+        let (rocket_pos, fuel_needed, is_full) = {
+            match self.rockets.get(&rocket_id) {
+                Some(r) => (r.position(), r.max_fuel() - r.current_fuel(), r.current_fuel() >= r.max_fuel()),
+                None => return false,
             }
         };
 
-        // Skip if rocket is already full
-        if rocket.current_fuel() >= rocket.max_fuel() {
-            log::info!("Rocket is full");
+        if is_full {
             return false;
         }
 
-        let rocket_pos = rocket.position();
-        let fuel_needed = rocket.max_fuel() - rocket.current_fuel();
-        log::info!("Rocket needs {} fuel", fuel_needed);
-
-        // Find nearest planet that can provide fuel
-        let mut nearest_planet: Option<(EntityId, f32)> = None;
+        // Find nearest planet in range
+        let mut nearest_planet_id: Option<EntityId> = None;
         let mut min_distance = f32::MAX;
 
         for (planet_id, planet) in &self.planets {
-            // Check if planet can provide fuel
             if !planet.can_collect_fuel() {
                 continue;
             }
 
-            // Check distance
             let distance = (rocket_pos - planet.position()).length();
-            let collection_range = planet.fuel_collection_range();
-
-            log::info!("Planet {} distance: {}, range: {}", planet_id, distance, collection_range);
-
-            if distance <= collection_range && distance < min_distance {
+            if distance <= planet.fuel_collection_range() && distance < min_distance {
                 min_distance = distance;
-                nearest_planet = Some((*planet_id, distance));
+                nearest_planet_id = Some(*planet_id);
             }
         }
 
-        // If found a planet in range, transfer fuel
-        if let Some((nearest_planet_id, _distance)) = nearest_planet {
-            log::info!("Found planet {} in range", nearest_planet_id);
-
-            // Calculate base transfer amount (use FUEL_COLLECTION_RATE for planets)
+        // Transfer fuel and deplete mass
+        if let Some(pid) = nearest_planet_id {
             let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
             let desired_transfer = transfer_rate.min(fuel_needed);
 
-            // Calculate safe transfer amount (don't deplete planet below minimum viable mass)
-            let planet = self.planets.get(&nearest_planet_id).unwrap();
-            let old_mass = planet.mass();
-            let max_safe_transfer = (planet.mass() - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
-            let transfer_amount = desired_transfer.min(max_safe_transfer);
-
-            log::info!("Transfer amount: {}, safe max: {}", transfer_amount, max_safe_transfer);
+            let planet_mass = self.planets[&pid].mass();
+            let max_safe = (planet_mass - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
+            let transfer_amount = desired_transfer.min(max_safe);
 
             if transfer_amount > 0.0 {
-                // Add fuel to rocket
-                if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
-                    rocket.add_fuel(transfer_amount);
-
-                    // Deplete planet mass by the same amount (1:1 ratio)
-                    if let Some(planet) = self.planets.get_mut(&nearest_planet_id) {
-                        let new_mass = old_mass - transfer_amount;
-                        planet.set_mass(new_mass); // This automatically updates radius
-                        log::info!("!!! MASS CHANGED: {} -> {}", old_mass, new_mass);
-                    }
-
-                    return true; // Successfully refueling
-                }
+                // Add to rocket, remove from planet
+                self.rockets.get_mut(&rocket_id).unwrap().add_fuel(transfer_amount);
+                let planet = self.planets.get_mut(&pid).unwrap();
+                planet.set_mass(planet.mass() - transfer_amount);
+                return true;
             }
-        } else {
-            log::info!("No planet in range");
         }
 
-        false // Not refueling
+        false
     }
 
     // === Satellite Network Statistics ===
