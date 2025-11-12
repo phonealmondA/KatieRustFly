@@ -349,7 +349,7 @@ impl GameInfoDisplay {
             self.planet_panel.set_title(Some(title));
 
             format!(
-                "Mass: {:.2e} kg\n\
+                "Mass: {:.0} kg\n\
                  Radius: {:.0} m\n\
                  Fuel Range: {:.0} m",
                 mass, radius, fuel_range
