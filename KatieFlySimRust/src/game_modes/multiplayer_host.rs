@@ -1242,15 +1242,21 @@ impl MultiplayerHost {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
                 let satellite_stats = self.world.get_satellite_network_stats();
 
-                // Default to Earth (first planet) for multiplayer
+                // Get selected planet based on reference body
                 use crate::systems::ReferenceBody;
-                let selected_planet = all_planets.get(0).copied();
+                let reference_body = self.vehicle_manager.visualization().reference_body;
+
+                // Use direct index: planets[0] = Moon, planets[1] = Earth
+                let selected_planet = match reference_body {
+                    ReferenceBody::Earth => all_planets.get(1).copied(),
+                    ReferenceBody::Moon => all_planets.get(0).copied(),
+                };
 
                 self.game_info.update_all_panels(
                     Some(rocket),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    reference_body,
                     self.player_state.thrust_level(),
                     true,  // network_connected (hosting)
                     Some(0),  // Host is player 0

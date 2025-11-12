@@ -753,14 +753,21 @@ impl SplitScreenGame {
         // Update and draw Player 1 info display (left side, red theme)
         if let Some(r1_id) = self.player1_rocket_id {
             if let Some(r1) = self.world.get_rocket(r1_id) {
-                // Default to Earth (first planet) for split-screen
+                // Get selected planet based on reference body
                 use crate::systems::ReferenceBody;
-                let selected_planet = all_planets.get(0).copied();
+                let reference_body = self.vehicle_manager.visualization().reference_body;
+
+                // Use direct index: planets[0] = Moon, planets[1] = Earth
+                let selected_planet = match reference_body {
+                    ReferenceBody::Earth => all_planets.get(1).copied(),
+                    ReferenceBody::Moon => all_planets.get(0).copied(),
+                };
+
                 self.player1_info_display.update_all_panels(
                     Some(r1),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    reference_body,
                     self.player1_state.thrust_level(),
                     false,  // network_connected (not applicable for local split-screen)
                     Some(0),  // Player 1 ID
@@ -774,14 +781,21 @@ impl SplitScreenGame {
         // Update and draw Player 2 info display (right side, blue theme)
         if let Some(r2_id) = self.player2_rocket_id {
             if let Some(r2) = self.world.get_rocket(r2_id) {
-                // Default to Earth (first planet) for split-screen
+                // Get selected planet based on reference body
                 use crate::systems::ReferenceBody;
-                let selected_planet = all_planets.get(0).copied();
+                let reference_body = self.vehicle_manager.visualization().reference_body;
+
+                // Use direct index: planets[0] = Moon, planets[1] = Earth
+                let selected_planet = match reference_body {
+                    ReferenceBody::Earth => all_planets.get(1).copied(),
+                    ReferenceBody::Moon => all_planets.get(0).copied(),
+                };
+
                 self.player2_info_display.update_all_panels(
                     Some(r2),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    reference_body,
                     self.player2_state.thrust_level(),
                     false,  // network_connected
                     Some(1),  // Player 2 ID
