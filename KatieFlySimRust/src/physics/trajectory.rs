@@ -265,18 +265,27 @@ impl TrajectoryPredictor {
         }
 
         // Transform trajectory points to Moon-relative coordinates
+        // We subtract the Moon's future position at each time step, then add back
+        // the Moon's CURRENT position so the trajectory is drawn relative to where
+        // the Moon is right now in world space.
+        let moon_current_pos = moon_positions[0]; // Moon's initial position (t=0)
+
         let relative_points: Vec<TrajectoryPoint> = absolute_points
             .into_iter()
             .enumerate()
             .map(|(i, point)| {
-                let moon_pos = if i < moon_positions.len() {
+                let moon_future_pos = if i < moon_positions.len() {
                     moon_positions[i]
                 } else {
-                    *moon_positions.last().unwrap_or(&Vec2::ZERO)
+                    *moon_positions.last().unwrap_or(&moon_current_pos)
                 };
 
+                // Transform to Moon-relative frame, then back to world space centered on Moon
+                let relative_to_moon = point.position - moon_future_pos;
+                let world_space_pos = relative_to_moon + moon_current_pos;
+
                 TrajectoryPoint {
-                    position: point.position - moon_pos, // Relative to Moon
+                    position: world_space_pos,
                     velocity: point.velocity,
                     time: point.time,
                 }
