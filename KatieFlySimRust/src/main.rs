@@ -209,9 +209,8 @@ async fn main() {
                 let result = online_multiplayer_menu.update();
                 match result {
                     OnlineMultiplayerMenuResult::Host => {
-                        log::info!("Host selected - showing multiplayer saves menu");
-                        game_state = GameState::MultiplayerSavesMenu;
-                        multiplayer_saves_menu.refresh_saves();
+                        log::info!("Host selected - showing host configuration menu");
+                        game_state = GameState::OnlineHostMenu;
                     }
                     OnlineMultiplayerMenuResult::Join => {
                         log::info!("Join selected - showing join menu");
