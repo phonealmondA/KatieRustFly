@@ -38,6 +38,8 @@ pub struct SavedPlanet {
     pub velocity: SavedVector2,
     pub mass: f32,
     pub radius: f32,
+    pub initial_mass: Option<f32>,   // Original mass (for proportional scaling after load)
+    pub initial_radius: Option<f32>, // Original radius (for proportional scaling after load)
     pub color: (u8, u8, u8), // RGB
 }
 
@@ -51,6 +53,8 @@ impl SavedPlanet {
             velocity: planet.velocity().into(),
             mass: planet.mass(),
             radius: planet.radius(),
+            initial_mass: Some(planet.initial_mass()),
+            initial_radius: Some(planet.initial_radius()),
             color: (
                 (planet.color().r * 255.0) as u8,
                 (planet.color().g * 255.0) as u8,
@@ -60,10 +64,16 @@ impl SavedPlanet {
     }
 
     pub fn to_planet(&self) -> (EntityId, Planet) {
-        let mut planet = Planet::new(
+        // If initial values are saved, use them; otherwise use current values as initial
+        let initial_mass = self.initial_mass.unwrap_or(self.mass);
+        let initial_radius = self.initial_radius.unwrap_or(self.radius);
+
+        let mut planet = Planet::new_with_initials(
             self.position.clone().into(),
             self.radius,
             self.mass,
+            initial_radius,
+            initial_mass,
             Color::from_rgba(self.color.0, self.color.1, self.color.2, 255),
         );
 

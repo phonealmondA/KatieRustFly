@@ -11,6 +11,8 @@ pub struct Planet {
     data: GameObjectData,
     mass: f32,
     radius: f32,
+    initial_mass: f32,   // Store starting mass for proportional scaling
+    initial_radius: f32, // Store starting radius for proportional scaling
 }
 
 impl Planet {
@@ -19,6 +21,26 @@ impl Planet {
             data: GameObjectData::new(position, Vec2::new(0.0, 0.0), color),
             mass,
             radius,
+            initial_mass: mass,     // Store initial values
+            initial_radius: radius, // for proportional scaling
+        }
+    }
+
+    /// Create planet with explicit initial values (for loading saves)
+    pub fn new_with_initials(
+        position: Vec2,
+        radius: f32,
+        mass: f32,
+        initial_radius: f32,
+        initial_mass: f32,
+        color: Color,
+    ) -> Self {
+        Planet {
+            data: GameObjectData::new(position, Vec2::new(0.0, 0.0), color),
+            mass,
+            radius,
+            initial_mass,
+            initial_radius,
         }
     }
 
@@ -30,16 +52,26 @@ impl Planet {
         self.radius
     }
 
-    pub fn set_mass(&mut self, new_mass: f32) {
-        self.mass = new_mass;
-        self.update_radius_from_mass();
+    pub fn initial_mass(&self) -> f32 {
+        self.initial_mass
     }
 
-    /// Update planet radius based on mass using game constants
+    pub fn initial_radius(&self) -> f32 {
+        self.initial_radius
+    }
+
+    pub fn set_mass(&mut self, new_mass: f32) {
+        // Calculate mass ratio and scale radius proportionally (cube root for volume)
+        let mass_ratio = new_mass / self.initial_mass;
+        self.radius = self.initial_radius * mass_ratio.powf(1.0 / 3.0);
+        self.mass = new_mass;
+    }
+
+    /// Update planet radius based on mass using proportional scaling from initial values
     pub fn update_radius_from_mass(&mut self) {
-        // Use cube root for volume-based scaling
-        let mass_ratio = self.mass / GameConstants::REFERENCE_MASS;
-        self.radius = GameConstants::BASE_RADIUS_FACTOR * mass_ratio.powf(1.0 / 3.0);
+        // Scale radius proportionally from initial values (cube root for volume relationship)
+        let mass_ratio = self.mass / self.initial_mass;
+        self.radius = self.initial_radius * mass_ratio.powf(1.0 / 3.0);
     }
 
     /// Check if planet has enough mass for fuel collection
