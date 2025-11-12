@@ -52,9 +52,7 @@ pub struct SinglePlayerGame {
 
 impl SinglePlayerGame {
     pub fn new(window_size: Vec2) -> Self {
-        let mut info_display = GameInfoDisplay::new();
-        // Hide controls panel since we use the popup system instead (Enter key / "..." button)
-        info_display.toggle_controls_panel();
+        let info_display = GameInfoDisplay::new();
 
         SinglePlayerGame {
             world: World::new(),
@@ -421,7 +419,7 @@ impl SinglePlayerGame {
             self.quick_save();
         }
 
-        // Panel visibility toggles (keys 1-5)
+        // Panel visibility toggles (keys 1-3, 5)
         if is_key_pressed(KeyCode::Key1) {
             self.info_display.toggle_rocket_panel();
             log::info!("Toggled rocket panel");
@@ -434,10 +432,7 @@ impl SinglePlayerGame {
             self.info_display.toggle_orbit_panel();
             log::info!("Toggled orbit panel");
         }
-        if is_key_pressed(KeyCode::Key4) {
-            self.info_display.toggle_controls_panel();
-            log::info!("Toggled controls panel");
-        }
+        // Key 4 removed - controls panel deleted
         if is_key_pressed(KeyCode::Key5) {
             self.show_network_map = !self.show_network_map;
             log::info!("Toggled network map: {}", self.show_network_map);
@@ -1047,9 +1042,21 @@ impl SinglePlayerGame {
             None
         };
 
+        // Get selected planet for panels 2 and 3 based on reference body
+        use crate::systems::ReferenceBody;
+        let reference_body = self.vehicle_manager.visualization().reference_body;
+
+        // Use direct index: planets[0] = Moon, planets[1] = Earth
+        let selected_planet = match reference_body {
+            ReferenceBody::Earth => all_planets.get(1).copied(),
+            ReferenceBody::Moon => all_planets.get(0).copied(),
+        };
+
         self.info_display.update_all_panels(
             active_rocket,
             &all_planets,
+            selected_planet,
+            reference_body,  // Pass reference body so UI knows which planet
             self.selected_thrust_level,
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)
@@ -1164,16 +1171,17 @@ impl SinglePlayerGame {
                 ("MOUSE WHEEL", "Zoom"),
                 ("C", "Convert to satellite"),
                 ("W", "Shoot bullet"),
+                ("R", "Refuel from planet"),
                 ("P", "Pause/Unpause"),
             ];
 
             let controls_right = [
                 ("T", "Toggle trajectory"),
                 ("G", "Toggle gravity forces"),
+                ("TAB", "Switch planet (panels 2/3)"),
                 ("1", "Toggle rocket panel"),
                 ("2", "Toggle planet panel"),
                 ("3", "Toggle orbit panel"),
-                ("4", "Toggle controls panel"),
                 ("5", "Toggle network map"),
                 ("9", "Hide all panels"),
                 ("0", "Show all panels"),
