@@ -309,10 +309,12 @@ async fn main() {
             }
 
             GameState::MultiplayerHost => {
+                let mut should_drop_host = false;
                 if let Some(ref mut host) = multiplayer_host {
                     match host.handle_input() {
                         MultiplayerHostResult::ReturnToMenu => {
                             log::info!("Returning to multiplayer menu from host");
+                            should_drop_host = true;
                             game_state = GameState::MultiplayerMenu;
                         }
                         MultiplayerHostResult::Quit => {
@@ -322,15 +324,23 @@ async fn main() {
                         _ => {}
                     }
 
-                    host.update(delta_time);
+                    if !should_drop_host {
+                        host.update(delta_time);
+                    }
+                }
+                // Drop the host to close the UDP socket and free the port
+                if should_drop_host {
+                    multiplayer_host = None;
                 }
             }
 
             GameState::MultiplayerClient => {
+                let mut should_drop_client = false;
                 if let Some(ref mut client) = multiplayer_client {
                     match client.handle_input() {
                         MultiplayerClientResult::ReturnToMenu => {
                             log::info!("Returning to multiplayer menu from client");
+                            should_drop_client = true;
                             game_state = GameState::MultiplayerMenu;
                         }
                         MultiplayerClientResult::Quit => {
@@ -339,12 +349,19 @@ async fn main() {
                         }
                         MultiplayerClientResult::ConnectionLost => {
                             log::warn!("Connection to host lost");
+                            should_drop_client = true;
                             game_state = GameState::MultiplayerMenu;
                         }
                         _ => {}
                     }
 
-                    client.update(delta_time);
+                    if !should_drop_client {
+                        client.update(delta_time);
+                    }
+                }
+                // Drop the client to close the UDP socket
+                if should_drop_client {
+                    multiplayer_client = None;
                 }
             }
         }
