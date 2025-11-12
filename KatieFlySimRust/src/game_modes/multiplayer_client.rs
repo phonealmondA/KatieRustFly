@@ -165,17 +165,15 @@ impl MultiplayerClient {
         if is_key_pressed(KeyCode::Escape) {
             if self.show_controls {
                 self.show_controls = false;
-                self.paused = false;
             } else {
                 log::info!("ESC pressed - disconnecting from host");
                 return MultiplayerClientResult::ReturnToMenu;
             }
         }
 
-        // Enter - toggle controls menu
+        // Enter - toggle controls menu (game keeps running in background)
         if is_key_pressed(KeyCode::Enter) {
             self.show_controls = !self.show_controls;
-            self.paused = self.show_controls; // Pause when showing controls
         }
 
         // Panel visibility toggles (keys 1-5)
@@ -909,6 +907,117 @@ impl MultiplayerClient {
         );
     }
 
+    fn draw_controls_popup(&self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let popup_w = 800.0;
+        let popup_h = 600.0;
+        let popup_x = screen_w / 2.0 - popup_w / 2.0;
+        let popup_y = screen_h / 2.0 - popup_h / 2.0;
+
+        // Semi-transparent overlay
+        draw_rectangle(0.0, 0.0, screen_w, screen_h, Color::new(0.0, 0.0, 0.0, 0.5));
+
+        // Popup background
+        draw_rectangle(popup_x, popup_y, popup_w, popup_h, Color::new(0.1, 0.1, 0.1, 0.95));
+        // Popup border
+        draw_rectangle_lines(popup_x, popup_y, popup_w, popup_h, 3.0, WHITE);
+
+        // Title
+        let title = "MULTIPLAYER CLIENT CONTROLS";
+        let title_size = 32.0;
+        let title_dims = measure_text(title, None, title_size as u16, 1.0);
+        draw_text(
+            title,
+            popup_x + popup_w / 2.0 - title_dims.width / 2.0,
+            popup_y + 40.0,
+            title_size,
+            WHITE,
+        );
+
+        // Controls list - Two columns
+        let controls_left = [
+            ("COMMA", "Decrease thrust -5%"),
+            ("PERIOD", "Increase thrust +5%"),
+            ("SPACE", "Apply thrust"),
+            ("A / LEFT", "Rotate left"),
+            ("D / RIGHT", "Rotate right"),
+            ("Q", "Zoom in"),
+            ("E", "Zoom out"),
+            ("MOUSE WHEEL", "Zoom"),
+            ("W", "Fire bullet"),
+            ("P", "Pause/Unpause (local)"),
+        ];
+
+        let controls_right = [
+            ("T", "Toggle trajectory"),
+            ("G", "Toggle gravity forces"),
+            ("1", "Toggle rocket panel"),
+            ("2", "Toggle planet panel"),
+            ("3", "Toggle orbit panel"),
+            ("4", "Toggle controls panel"),
+            ("5", "Toggle network panel"),
+            ("9", "Hide all panels"),
+            ("0", "Show all panels"),
+            ("F5", "Request quick save"),
+            ("ENTER", "Toggle this menu"),
+            ("ESC", "Disconnect"),
+        ];
+
+        let font_size = 17.0;
+        let line_height = 32.0;
+        let col_spacing = popup_w / 2.0;
+
+        // Draw left column
+        let mut y = popup_y + 85.0;
+        for (key, action) in &controls_left {
+            draw_text(
+                key,
+                popup_x + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Draw right column
+        y = popup_y + 85.0;
+        for (key, action) in &controls_right {
+            draw_text(
+                key,
+                popup_x + col_spacing + 30.0,
+                y,
+                font_size,
+                Color::new(0.8, 0.8, 1.0, 1.0), // Light blue
+            );
+            draw_text(
+                action,
+                popup_x + col_spacing + 160.0,
+                y,
+                font_size,
+                WHITE,
+            );
+            y += line_height;
+        }
+
+        // Footer
+        draw_text(
+            "Press ESC or ENTER to close this menu",
+            popup_x + popup_w / 2.0 - 160.0,
+            popup_y + popup_h - 30.0,
+            18.0,
+            LIGHTGRAY,
+        );
+    }
+
     /// Render the game
     pub fn render(&mut self) {
         // Set camera
@@ -1017,6 +1126,11 @@ impl MultiplayerClient {
 
             // Draw main text (yellow/gold color)
             draw_text(text, text_x, text_y, text_size, Color::new(1.0, 0.9, 0.0, 1.0));
+        }
+
+        // Draw controls popup if showing
+        if self.show_controls {
+            self.draw_controls_popup();
         }
 
         // Draw network map popup if showing

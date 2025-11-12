@@ -253,17 +253,15 @@ impl MultiplayerHost {
         if is_key_pressed(KeyCode::Escape) {
             if self.show_controls {
                 self.show_controls = false;
-                self.paused = false;
             } else {
                 log::info!("ESC pressed - returning to menu");
                 return MultiplayerHostResult::ReturnToMenu;
             }
         }
 
-        // Enter - toggle controls menu
+        // Enter - toggle controls menu (game keeps running in background)
         if is_key_pressed(KeyCode::Enter) {
             self.show_controls = !self.show_controls;
-            self.paused = self.show_controls; // Pause when showing controls
         }
 
         // Panel visibility toggles (keys 1-5)
