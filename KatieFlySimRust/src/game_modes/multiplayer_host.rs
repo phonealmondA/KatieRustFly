@@ -628,12 +628,27 @@ impl MultiplayerHost {
                     let mut clients = self.clients.lock().unwrap();
 
                     if !clients.contains_key(&src_addr) && self.next_player_id < 20 {
-                        // New client joining
+                        // New client joining - try to parse join packet with player name
                         let player_id = self.next_player_id;
                         self.next_player_id += 1;
 
-                        // TODO: Receive actual player name from client in JOIN packet
-                        let player_name = format!("Player {}", player_id);
+                        // Try to deserialize as JoinPacket to get player name
+                        #[derive(Deserialize)]
+                        struct JoinPacket {
+                            player_name: String,
+                        }
+
+                        let player_name = if let Ok(join_packet) = bincode::deserialize::<JoinPacket>(&buf[..size]) {
+                            // Successfully parsed join packet with name
+                            if join_packet.player_name.trim().is_empty() {
+                                format!("Player {}", player_id) // Fallback if name is empty
+                            } else {
+                                join_packet.player_name
+                            }
+                        } else {
+                            // Fallback for old-style JOIN or keepalive packets
+                            format!("Player {}", player_id)
+                        };
 
                         clients.insert(src_addr, ConnectedClient {
                             addr: src_addr,
@@ -643,9 +658,9 @@ impl MultiplayerHost {
                         });
 
                         // Add player name to the names map
-                        self.player_names.insert(player_id, player_name);
+                        self.player_names.insert(player_id, player_name.clone());
 
-                        log::info!("New client connected: {} assigned player_id {}", src_addr, player_id);
+                        log::info!("New client '{}' connected from {} assigned player_id {}", player_name, src_addr, player_id);
 
                         // Spawn a rocket for this player at their designated angle
                         drop(clients); // Drop the lock before spawning

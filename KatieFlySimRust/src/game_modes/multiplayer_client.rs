@@ -129,9 +129,19 @@ impl MultiplayerClient {
 
         log::info!("Multiplayer client '{}' connecting to {}:{}", player_name, host_ip, host_port);
 
-        // Send initial join packet
-        let join_packet = b"JOIN";
-        socket.send_to(join_packet, host_addr)
+        // Send initial join packet with player name
+        #[derive(Serialize)]
+        struct JoinPacket {
+            player_name: String,
+        }
+
+        let join_data = JoinPacket {
+            player_name: player_name.clone(),
+        };
+
+        let join_packet = bincode::serialize(&join_data)
+            .map_err(|e| format!("Failed to serialize join packet: {}", e))?;
+        socket.send_to(&join_packet, host_addr)
             .map_err(|e| format!("Failed to send join packet: {}", e))?;
 
         // Initialize player names map with this client's name (will be updated with actual player_id later)
