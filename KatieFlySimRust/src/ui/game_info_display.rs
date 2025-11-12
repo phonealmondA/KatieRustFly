@@ -30,14 +30,12 @@ pub struct GameInfoDisplay {
     rocket_panel: TextPanel,
     planet_panel: TextPanel,
     orbit_panel: TextPanel,
-    controls_panel: TextPanel,
     network_panel: TextPanel,
 
     // Panel visibility
     show_rocket_panel: bool,
     show_planet_panel: bool,
     show_orbit_panel: bool,
-    show_controls_panel: bool,
     show_network_panel: bool,
 
     // Configuration
@@ -87,19 +85,10 @@ impl GameInfoDisplay {
         .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
         .with_border_color(Color::new(1.0, 1.0, 0.0, 0.6));
 
-        // Controls panel on the right side
+        // Network panel on the right side
         let screen_width = screen_width();
-        let controls_panel = TextPanel::new(
-            Vec2::new(screen_width - panel_width - panel_margin, panel_margin),
-            Vec2::new(panel_width, 300.0),
-        )
-        .with_title("Controls")
-        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
-        .with_border_color(Color::new(0.8, 0.8, 0.8, 0.6));
-
-        // Network panel on the right side, below controls
         let network_panel = TextPanel::new(
-            Vec2::new(screen_width - panel_width - panel_margin, 320.0),
+            Vec2::new(screen_width - panel_width - panel_margin, panel_margin),
             Vec2::new(panel_width, 150.0),
         )
         .with_title("Network")
@@ -110,12 +99,10 @@ impl GameInfoDisplay {
             rocket_panel,
             planet_panel,
             orbit_panel,
-            controls_panel,
             network_panel,
             show_rocket_panel: true,
             show_planet_panel: true,
             show_orbit_panel: true,
-            show_controls_panel: true,
             show_network_panel: false,
             panel_spacing: 10.0,
             panel_width,
@@ -171,15 +158,6 @@ impl GameInfoDisplay {
         .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
         .with_border_color(theme_color);
 
-        // Controls panel (hidden by default in split-screen)
-        let controls_panel = TextPanel::new(
-            Vec2::new(x_pos, 570.0),
-            Vec2::new(panel_width, 150.0),
-        )
-        .with_title("Controls")
-        .with_background_color(Color::new(0.0, 0.0, 0.0, 0.7))
-        .with_border_color(Color::new(0.8, 0.8, 0.8, 0.6));
-
         // Network panel at bottom middle (same for both players)
         let network_x = screen_width / 2.0 - panel_width / 2.0;
         let network_panel = TextPanel::new(
@@ -194,12 +172,10 @@ impl GameInfoDisplay {
             rocket_panel,
             planet_panel,
             orbit_panel,
-            controls_panel,
             network_panel,
             show_rocket_panel: true,
             show_planet_panel: true,
             show_orbit_panel: true,
-            show_controls_panel: false,  // Hidden by default in split-screen
             show_network_panel: true,    // Show network panel in split-screen
             panel_spacing: 10.0,
             panel_width,
@@ -240,10 +216,6 @@ impl GameInfoDisplay {
         self.show_orbit_panel = !self.show_orbit_panel;
     }
 
-    pub fn toggle_controls_panel(&mut self) {
-        self.show_controls_panel = !self.show_controls_panel;
-    }
-
     pub fn toggle_network_panel(&mut self) {
         self.show_network_panel = !self.show_network_panel;
     }
@@ -252,7 +224,6 @@ impl GameInfoDisplay {
         self.show_rocket_panel = false;
         self.show_planet_panel = false;
         self.show_orbit_panel = false;
-        self.show_controls_panel = false;
         self.show_network_panel = false;
     }
 
@@ -260,7 +231,6 @@ impl GameInfoDisplay {
         self.show_rocket_panel = true;
         self.show_planet_panel = true;
         self.show_orbit_panel = true;
-        self.show_controls_panel = true;
         self.show_network_panel = matches!(
             self.game_mode,
             GameMode::SplitScreen | GameMode::OnlineMultiplayer
@@ -277,21 +247,15 @@ impl GameInfoDisplay {
     }
 
     /// Update planet information panel
-    pub fn update_planet_panel(&mut self, rocket_position: Vec2, planets: &[&Planet]) {
-        let info = self.generate_planet_info(rocket_position, planets);
+    pub fn update_planet_panel(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>) {
+        let info = self.generate_planet_info(rocket_position, selected_planet);
         self.planet_panel.set_text(&info);
     }
 
     /// Update orbital information panel
-    pub fn update_orbit_panel(&mut self, rocket: &Rocket, primary_planet: Option<&Planet>) {
-        let info = self.generate_orbit_info(rocket, primary_planet);
+    pub fn update_orbit_panel(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet]) {
+        let info = self.generate_orbit_info(rocket, selected_planet, all_planets);
         self.orbit_panel.set_text(&info);
-    }
-
-    /// Update controls panel (static information)
-    pub fn update_controls_panel(&mut self) {
-        let controls = self.generate_controls_info();
-        self.controls_panel.set_text(&controls);
     }
 
     /// Update network information panel
@@ -311,6 +275,7 @@ impl GameInfoDisplay {
         &mut self,
         rocket: Option<&Rocket>,
         planets: &[&Planet],
+        selected_planet: Option<&Planet>,
         selected_thrust: f32,
         network_connected: bool,
         player_id: Option<usize>,
@@ -320,14 +285,11 @@ impl GameInfoDisplay {
         if let Some(rocket) = rocket {
             let rocket_pos = rocket.position();
             self.update_rocket_panel(rocket, selected_thrust);
-            self.update_planet_panel(rocket_pos, planets);
 
-            // Find primary planet (nearest massive body)
-            let primary_planet = Self::find_primary_planet(rocket_pos, planets);
-            self.update_orbit_panel(rocket, primary_planet);
+            // Use selected planet for panels 2 and 3
+            self.update_planet_panel(rocket_pos, selected_planet);
+            self.update_orbit_panel(rocket, selected_planet, planets);
         }
-
-        self.update_controls_panel();
 
         if self.game_mode != GameMode::SinglePlayer {
             self.update_network_panel(
@@ -368,70 +330,73 @@ impl GameInfoDisplay {
     }
 
     /// Generate planet information text
-    fn generate_planet_info(&self, rocket_position: Vec2, planets: &[&Planet]) -> String {
-        let nearest = Self::find_nearest_planet(rocket_position, planets);
-
-        if let Some(planet) = nearest {
+    fn generate_planet_info(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>) -> String {
+        if let Some(planet) = selected_planet {
             let distance = vector_helper::distance(rocket_position, planet.position());
             let mass = planet.mass();
             let radius = planet.radius();
-            let velocity = planet.velocity().length();
+            let fuel_range = planet.fuel_collection_range();
 
-            let in_fuel_range = distance <= planet.fuel_collection_range();
-            let fuel_status = if in_fuel_range {
-                format!("AVAILABLE (range: {:.0})", planet.fuel_collection_range())
-            } else {
-                format!("Out of range ({:.0} away)", distance - planet.fuel_collection_range())
-            };
+            // Determine planet name based on mass (Earth is more massive)
+            let planet_name = if mass > 5e14 { "Earth" } else { "Moon" };
+
+            // Update panel title dynamically
+            let title = format!("Selected Planet: {}", planet_name);
+            self.planet_panel.set_title(Some(title));
 
             format!(
-                "Distance: {:.0} m\n\
-                 Mass: {:.0} kg\n\
+                "Mass: {:.2e} kg\n\
                  Radius: {:.0} m\n\
-                 Velocity: {:.1} m/s\n\
-                 Fuel: {}",
-                distance, mass, radius, velocity, fuel_status
+                 Fuel Range: {:.0} m",
+                mass, radius, fuel_range
             )
         } else {
-            "No planets detected".to_string()
+            self.planet_panel.set_title(Some("Selected Planet".to_string()));
+            "No planet selected".to_string()
         }
     }
 
     /// Generate orbital information text
-    fn generate_orbit_info(&self, rocket: &Rocket, primary_planet: Option<&Planet>) -> String {
-        if let Some(planet) = primary_planet {
-            let distance = vector_helper::distance(rocket.position(), planet.position());
-            let velocity = rocket.velocity().length();
+    fn generate_orbit_info(&mut self, rocket: &Rocket, selected_planet: Option<&Planet>, all_planets: &[&Planet]) -> String {
+        if let Some(planet) = selected_planet {
+            let rocket_pos = rocket.position();
+            let rocket_vel = rocket.velocity();
+            let planet_pos = planet.position();
+            let planet_mass = planet.mass();
+            let planet_radius = planet.radius();
 
-            // Calculate orbital parameters
-            let orbital_velocity = self.calculate_orbital_velocity(planet.mass(), distance);
-            let escape_velocity = self.calculate_escape_velocity(planet.mass(), distance);
+            // Determine planet name based on mass (Earth is more massive)
+            let planet_name = if planet_mass > 5e14 { "Earth" } else { "Moon" };
 
-            let velocity_ratio = velocity / orbital_velocity;
+            // Update panel title dynamically
+            let title = format!("Orbital Info of {}", planet_name);
+            self.orbit_panel.set_title(Some(title));
 
-            let orbit_status = if velocity < orbital_velocity * 0.9 {
-                "DECAYING"
-            } else if velocity > escape_velocity {
-                "ESCAPING"
-            } else if velocity > orbital_velocity * 1.1 {
-                "CLIMBING"
-            } else {
-                "STABLE"
-            };
+            // Calculate periapsis and apoapsis
+            let (periapsis, apoapsis) = self.calculate_orbital_apsides(
+                rocket_pos,
+                rocket_vel,
+                planet_pos,
+                planet_mass,
+            );
+
+            // Calculate drift from other bodies
+            let drift = self.calculate_drift_from_other_bodies(
+                rocket_pos,
+                planet,
+                all_planets,
+            );
 
             format!(
-                "Altitude: {:.0} m\n\
-                 Orbital V: {:.1} m/s\n\
-                 Escape V: {:.1} m/s\n\
-                 V Ratio: {:.2}x\n\
-                 Status: {}",
-                distance - planet.radius(),
-                orbital_velocity,
-                escape_velocity,
-                velocity_ratio,
-                orbit_status
+                "Periapsis: {:.0} m\n\
+                 Apoapsis: {:.0} m\n\
+                 Drift Approx.: {:.2} m/s²",
+                periapsis.max(0.0) - planet_radius,  // Altitude above surface
+                apoapsis - planet_radius,            // Altitude above surface
+                drift
             )
         } else {
+            self.orbit_panel.set_title(Some("Orbital Info".to_string()));
             match self.game_mode {
                 GameMode::SinglePlayer => {
                     "Press C to convert\nto satellite when\nin stable orbit".to_string()
@@ -442,52 +407,6 @@ impl GameInfoDisplay {
                 GameMode::OnlineMultiplayer => {
                     "Satellites sync\nacross network".to_string()
                 }
-            }
-        }
-    }
-
-    /// Generate controls information text
-    fn generate_controls_info(&self) -> String {
-        match self.game_mode {
-            GameMode::SinglePlayer => {
-                "Movement:\n\
-                 SPACE - Thrust\n\
-                 A/D or ← → - Rotate\n\
-                 \n\
-                 Actions:\n\
-                 E - Launch/Detach\n\
-                 C - Convert to Satellite\n\
-                 F - Toggle Camera\n\
-                 \n\
-                 System:\n\
-                 F5 - Quick Save\n\
-                 ESC - Menu\n\
-                 Mouse Wheel - Zoom"
-                    .to_string()
-            }
-            GameMode::SplitScreen => {
-                "Player 1:\n\
-                 Arrow Keys - Move\n\
-                 L - Launch\n\
-                 T - Convert Satellite\n\
-                 \n\
-                 Player 2:\n\
-                 WASD - Move\n\
-                 K - Launch\n\
-                 Y - Convert Satellite"
-                    .to_string()
-            }
-            GameMode::OnlineMultiplayer => {
-                "Controls:\n\
-                 Same as Single Player\n\
-                 \n\
-                 Network:\n\
-                 Your actions sync\n\
-                 to other players\n\
-                 \n\
-                 Satellites visible\n\
-                 to all players"
-                    .to_string()
             }
         }
     }
@@ -561,6 +480,94 @@ impl GameInfoDisplay {
         (2.0 * g * planet_mass / distance).sqrt()
     }
 
+    /// Calculate periapsis and apoapsis of orbit relative to a planet
+    /// Returns (periapsis_distance, apoapsis_distance) from planet center
+    fn calculate_orbital_apsides(
+        &self,
+        rocket_pos: Vec2,
+        rocket_vel: Vec2,
+        planet_pos: Vec2,
+        planet_mass: f32,
+    ) -> (f32, f32) {
+        // Use game's gravity constant (from GameConstants::G = 100.0)
+        let g = 100.0;
+
+        // Position and velocity relative to planet
+        let r_vec = rocket_pos - planet_pos;
+        let r = r_vec.length();
+        let v = rocket_vel.length();
+
+        // Specific orbital energy: E = v²/2 - μ/r where μ = G*M
+        let mu = g * planet_mass;
+        let specific_energy = (v * v) / 2.0 - mu / r;
+
+        // Specific angular momentum: h = |r × v|
+        // In 2D: h = r.x * v.y - r.y * v.x
+        let h = r_vec.x * rocket_vel.y - r_vec.y * rocket_vel.x;
+        let h_squared = h * h;
+
+        // Semi-major axis: a = -μ / (2*E)
+        let a = -mu / (2.0 * specific_energy);
+
+        // Eccentricity: e = sqrt(1 + (2*E*h²)/μ²)
+        let e_squared = 1.0 + (2.0 * specific_energy * h_squared) / (mu * mu);
+        let e = if e_squared > 0.0 {
+            e_squared.sqrt()
+        } else {
+            0.0 // Circular orbit
+        };
+
+        // Periapsis and apoapsis distances
+        let periapsis = a * (1.0 - e);
+        let apoapsis = a * (1.0 + e);
+
+        // Clamp to reasonable values
+        let periapsis = periapsis.max(0.0);
+        let apoapsis = if apoapsis < 0.0 || e >= 1.0 {
+            // Hyperbolic or parabolic trajectory (escaping)
+            999999.0
+        } else {
+            apoapsis
+        };
+
+        (periapsis, apoapsis)
+    }
+
+    /// Calculate gravitational drift acceleration from other bodies (not the selected planet)
+    fn calculate_drift_from_other_bodies(
+        &self,
+        rocket_pos: Vec2,
+        selected_planet: &Planet,
+        all_planets: &[&Planet],
+    ) -> f32 {
+        // Use game's gravity constant
+        let g = 100.0;
+        let rocket_mass = 1.0; // Doesn't matter for acceleration calculation
+
+        let mut total_drift_accel = Vec2::ZERO;
+
+        for planet in all_planets {
+            // Skip the selected planet
+            if planet.position() == selected_planet.position() {
+                continue;
+            }
+
+            // Calculate gravitational acceleration from this other planet
+            let diff = planet.position() - rocket_pos;
+            let distance = diff.length();
+
+            if distance > 0.0 {
+                let force_magnitude = (g * planet.mass() * rocket_mass) / (distance * distance);
+                let acceleration = force_magnitude / rocket_mass;
+                let direction = diff / distance;
+                total_drift_accel += direction * acceleration;
+            }
+        }
+
+        // Return magnitude of total drift acceleration
+        total_drift_accel.length()
+    }
+
     // === Layout Management ===
 
     pub fn reposition_panels(&mut self) {
@@ -578,15 +585,10 @@ impl GameInfoDisplay {
             self.panel_margin + 400.0,
         ));
 
-        // Right side panels
-        self.controls_panel.set_position(Vec2::new(
-            screen_width - self.panel_width - self.panel_margin,
-            self.panel_margin,
-        ));
-
+        // Right side panel (network)
         self.network_panel.set_position(Vec2::new(
             screen_width - self.panel_width - self.panel_margin,
-            self.panel_margin + 310.0,
+            self.panel_margin,
         ));
     }
 
@@ -660,10 +662,6 @@ impl GameInfoDisplay {
             self.orbit_panel.draw();
         }
 
-        if self.show_controls_panel {
-            self.controls_panel.draw();
-        }
-
         if self.show_network_panel {
             self.network_panel.draw();
         }
@@ -686,7 +684,6 @@ mod tests {
         assert!(display.show_rocket_panel);
         assert!(display.show_planet_panel);
         assert!(display.show_orbit_panel);
-        assert!(display.show_controls_panel);
         assert!(!display.show_network_panel); // Off by default for single player
     }
 
@@ -720,7 +717,6 @@ mod tests {
         assert!(!display.show_rocket_panel);
         assert!(!display.show_planet_panel);
         assert!(!display.show_orbit_panel);
-        assert!(!display.show_controls_panel);
         assert!(!display.show_network_panel);
     }
 

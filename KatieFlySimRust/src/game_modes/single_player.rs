@@ -48,13 +48,14 @@ pub struct SinglePlayerGame {
 
     // Save celebration (F5 quick save)
     save_celebration_timer: f32,  // Time remaining for "what a save!!" text
+
+    // Selected planet for info panels (0 = Earth, 1 = Moon)
+    selected_planet_index: usize,
 }
 
 impl SinglePlayerGame {
     pub fn new(window_size: Vec2) -> Self {
-        let mut info_display = GameInfoDisplay::new();
-        // Hide controls panel since we use the popup system instead (Enter key / "..." button)
-        info_display.toggle_controls_panel();
+        let info_display = GameInfoDisplay::new();
 
         SinglePlayerGame {
             world: World::new(),
@@ -74,6 +75,7 @@ impl SinglePlayerGame {
             show_network_map: false,
             marked_satellites: HashSet::new(),
             save_celebration_timer: 0.0,
+            selected_planet_index: 0,  // Start with Earth selected
         }
     }
 
@@ -421,7 +423,7 @@ impl SinglePlayerGame {
             self.quick_save();
         }
 
-        // Panel visibility toggles (keys 1-5)
+        // Panel visibility toggles (keys 1-3, 5)
         if is_key_pressed(KeyCode::Key1) {
             self.info_display.toggle_rocket_panel();
             log::info!("Toggled rocket panel");
@@ -434,10 +436,7 @@ impl SinglePlayerGame {
             self.info_display.toggle_orbit_panel();
             log::info!("Toggled orbit panel");
         }
-        if is_key_pressed(KeyCode::Key4) {
-            self.info_display.toggle_controls_panel();
-            log::info!("Toggled controls panel");
-        }
+        // Key 4 removed - controls panel deleted
         if is_key_pressed(KeyCode::Key5) {
             self.show_network_map = !self.show_network_map;
             log::info!("Toggled network map: {}", self.show_network_map);
@@ -462,8 +461,10 @@ impl SinglePlayerGame {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
         if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+            // Toggle between Earth (0) and Moon (1)
+            self.selected_planet_index = if self.selected_planet_index == 0 { 1 } else { 0 };
+            let planet_name = if self.selected_planet_index == 0 { "Earth" } else { "Moon" };
+            log::info!("Selected planet for info panels: {}", planet_name);
         }
 
         // Mouse wheel zoom (reduced delta for finer control)
@@ -1047,9 +1048,17 @@ impl SinglePlayerGame {
             None
         };
 
+        // Get selected planet for panels 2 and 3
+        let selected_planet = if self.selected_planet_index < all_planets.len() {
+            Some(all_planets[self.selected_planet_index])
+        } else {
+            None
+        };
+
         self.info_display.update_all_panels(
             active_rocket,
             &all_planets,
+            selected_planet,
             self.selected_thrust_level,
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)
@@ -1164,16 +1173,17 @@ impl SinglePlayerGame {
                 ("MOUSE WHEEL", "Zoom"),
                 ("C", "Convert to satellite"),
                 ("W", "Shoot bullet"),
+                ("R", "Refuel from planet"),
                 ("P", "Pause/Unpause"),
             ];
 
             let controls_right = [
                 ("T", "Toggle trajectory"),
                 ("G", "Toggle gravity forces"),
+                ("TAB", "Switch planet (panels 2/3)"),
                 ("1", "Toggle rocket panel"),
                 ("2", "Toggle planet panel"),
                 ("3", "Toggle orbit panel"),
-                ("4", "Toggle controls panel"),
                 ("5", "Toggle network map"),
                 ("9", "Hide all panels"),
                 ("0", "Show all panels"),

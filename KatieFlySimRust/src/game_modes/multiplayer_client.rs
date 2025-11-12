@@ -240,9 +240,7 @@ impl MultiplayerClient {
         if is_key_pressed(KeyCode::Key3) {
             self.game_info.toggle_orbit_panel();
         }
-        if is_key_pressed(KeyCode::Key4) {
-            self.game_info.toggle_controls_panel();
-        }
+        // Key 4 removed - controls panel deleted
         if is_key_pressed(KeyCode::Key5) {
             self.show_network_map = !self.show_network_map;
             log::info!("Toggled network map: {}", self.show_network_map);
@@ -1129,9 +1127,13 @@ impl MultiplayerClient {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
                 let satellite_stats = self.world.get_satellite_network_stats();
 
+                // Default to Earth (first planet) for multiplayer
+                let selected_planet = all_planets.get(0).copied();
+
                 self.game_info.update_all_panels(
                     Some(rocket),
                     &all_planets,
+                    selected_planet,
                     self.player_state.thrust_level(),
                     self.connected,  // network_connected
                     Some(self.player_id as usize),  // Client player ID
