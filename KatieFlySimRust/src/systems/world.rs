@@ -569,29 +569,35 @@ impl World {
             log::info!("Satellite {} destroyed by bullet", satellite_id);
         }
 
-        // Respawn rockets hit by bullets (convert to debris and respawn at origin)
+        // Convert rockets hit by bullets to satellites and respawn (like pressing C)
         for rocket_id in rockets_to_respawn {
-            if let Some(rocket) = self.rockets.remove(&rocket_id) {
-                // If this was the active rocket, clear it (will be reassigned to new spawn)
-                if self.active_rocket_id == Some(rocket_id) {
-                    self.active_rocket_id = None;
-                }
-                log::info!("Rocket {} destroyed by bullet, respawning at origin", rocket_id);
+            // Get rocket info before converting (for respawn)
+            let (player_id, color) = if let Some(rocket) = self.rockets.get(&rocket_id) {
+                (rocket.player_id(), rocket.color())
+            } else {
+                continue;
+            };
 
-                // Spawn new rocket at origin (0, 0) with default settings
+            // Convert rocket to satellite (preserves position, velocity, fuel)
+            if let Some(satellite_id) = self.convert_rocket_to_satellite(rocket_id) {
+                log::info!("Rocket {} hit by bullet, converted to satellite {}", rocket_id, satellite_id);
+
+                // Spawn new rocket for this player at origin
                 let mut new_rocket = Rocket::new(
                     Vec2::new(0.0, 200.0), // Spawn slightly above origin
                     Vec2::new(0.0, 0.0),   // No initial velocity
-                    rocket.color(),         // Keep same color
+                    color,                  // Keep same color
                     GameConstants::ROCKET_BASE_MASS,
                 );
-                new_rocket.set_player_id(rocket.player_id()); // Keep same player ID
+                new_rocket.set_player_id(player_id); // Keep same player ID
                 let new_rocket_id = self.add_rocket(new_rocket);
 
                 // If this was the active rocket, make the new one active
                 if self.active_rocket_id.is_none() {
                     self.active_rocket_id = Some(new_rocket_id);
                 }
+
+                log::info!("Respawned new rocket {} for player {:?}", new_rocket_id, player_id);
             }
         }
 
