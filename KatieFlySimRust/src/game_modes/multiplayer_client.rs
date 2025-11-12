@@ -64,6 +64,32 @@ pub struct MultiplayerClient {
 }
 
 impl MultiplayerClient {
+    /// Calculate spawn position for a player based on their player ID
+    /// Same as host - each player at +5 degrees from previous
+    fn calculate_spawn_position(player_id: u32) -> Vec2 {
+        let angle_degrees = player_id as f32 * 5.0;
+        let angle_radians = angle_degrees.to_radians();
+        let spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
+
+        Vec2::new(
+            GameConstants::MAIN_PLANET_X + spawn_distance * angle_radians.cos(),
+            GameConstants::MAIN_PLANET_Y + spawn_distance * angle_radians.sin(),
+        )
+    }
+
+    /// Get rocket color for a player based on their player ID
+    fn get_player_color(player_id: u32) -> Color {
+        match player_id {
+            0 => Color::from_rgba(255, 100, 100, 255), // Red for host
+            1 => Color::from_rgba(100, 100, 255, 255), // Blue for player 1
+            2 => Color::from_rgba(100, 255, 100, 255), // Green for player 2
+            3 => Color::from_rgba(255, 255, 100, 255), // Yellow for player 3
+            4 => Color::from_rgba(255, 100, 255, 255), // Magenta for player 4
+            5 => Color::from_rgba(100, 255, 255, 255), // Cyan for player 5
+            _ => Color::from_rgba(200, 200, 200, 255), // Gray for others
+        }
+    }
+
     /// Get trajectory color for a player (semi-transparent version)
     fn get_trajectory_color(player_id: u32) -> Color {
         match player_id {
@@ -301,6 +327,32 @@ impl MultiplayerClient {
 
         // Run local predicted simulation
         self.world.update(delta_time);
+
+        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        let destroyed_rockets = self.world.take_destroyed_rockets();
+        for destroyed in destroyed_rockets {
+            let player_id = destroyed.player_id.unwrap_or(0);
+            log::info!("Player {} rocket destroyed by bullet, respawning", player_id);
+
+            // Spawn new rocket for this player (same as 'C' key respawn logic)
+            let spawn_position = Self::calculate_spawn_position(player_id);
+            let mut new_rocket = Rocket::new(
+                spawn_position,
+                Vec2::new(0.0, 0.0),
+                Self::get_player_color(player_id),
+                GameConstants::ROCKET_BASE_MASS,
+            );
+            new_rocket.set_player_id(Some(player_id));
+            let new_rocket_id = self.world.add_rocket(new_rocket);
+
+            // If this was our rocket (this client's player), update active_rocket_id
+            if player_id == self.player_id {
+                self.active_rocket_id = Some(new_rocket_id);
+                self.world.set_active_rocket(Some(new_rocket_id));
+            }
+
+            log::info!("Respawned new rocket {} for player {}", new_rocket_id, player_id);
+        }
 
         // Update camera to follow client rocket
         if let Some(rocket_id) = self.active_rocket_id {
