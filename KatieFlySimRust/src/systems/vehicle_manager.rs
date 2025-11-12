@@ -6,6 +6,22 @@ use crate::entities::{Rocket, Planet};
 use crate::physics::TrajectoryPredictor;
 use crate::systems::EntityId;
 
+/// Reference body for trajectory calculations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferenceBody {
+    Earth,  // Largest planet (default)
+    Moon,   // Secondary planet
+}
+
+impl ReferenceBody {
+    pub fn toggle(&self) -> Self {
+        match self {
+            ReferenceBody::Earth => ReferenceBody::Moon,
+            ReferenceBody::Moon => ReferenceBody::Earth,
+        }
+    }
+}
+
 /// Vehicle visualization options
 #[derive(Debug, Clone)]
 pub struct VisualizationOptions {
@@ -14,6 +30,7 @@ pub struct VisualizationOptions {
     pub trajectory_steps: usize,
     pub trajectory_time_step: f32,
     pub force_vector_scale: f32,
+    pub reference_body: ReferenceBody,
 }
 
 impl Default for VisualizationOptions {
@@ -24,6 +41,7 @@ impl Default for VisualizationOptions {
             trajectory_steps: 200,
             trajectory_time_step: 0.5,
             force_vector_scale: 15.0,
+            reference_body: ReferenceBody::Earth,
         }
     }
 }
@@ -64,6 +82,11 @@ impl VehicleManager {
         self.visualization.show_gravity_forces = !self.visualization.show_gravity_forces;
     }
 
+    /// Toggle reference body (Earth <-> Moon)
+    pub fn toggle_reference_body(&mut self) {
+        self.visualization.reference_body = self.visualization.reference_body.toggle();
+    }
+
     /// Set visualization options
     pub fn set_visualization(&mut self, options: VisualizationOptions) {
         self.visualization = options;
@@ -94,14 +117,18 @@ impl VehicleManager {
         camera: &Camera2D,
         trajectory_color: Option<Color>,
     ) {
+        // Draw reference body indicator (white circle)
+        self.draw_reference_body_indicator(planets);
+
         // Draw trajectory prediction
         if self.visualization.show_trajectory {
-            let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory(
+            let (trajectory_points, self_intersects) = self.trajectory_predictor.predict_trajectory_with_reference(
                 rocket,
                 planets,
                 self.visualization.trajectory_time_step,
                 self.visualization.trajectory_steps,
                 true, // detect self-intersection
+                self.visualization.reference_body,
             );
 
             // Use custom color if provided, otherwise default to cyan
@@ -141,10 +168,48 @@ impl VehicleManager {
         }
     }
 
+    /// Draw white circle indicator at the center of the selected reference body
+    fn draw_reference_body_indicator(&self, planets: &[&Planet]) {
+        if planets.is_empty() {
+            return;
+        }
+
+        // Find Earth (largest) and Moon (secondary)
+        let mut earth_idx = 0;
+        let mut max_radius = 0.0f32;
+        for (i, planet) in planets.iter().enumerate() {
+            if planet.radius() > max_radius {
+                max_radius = planet.radius();
+                earth_idx = i;
+            }
+        }
+
+        // Get the selected body
+        let selected_idx = match self.visualization.reference_body {
+            ReferenceBody::Earth => earth_idx,
+            ReferenceBody::Moon => {
+                // Find the other planet (not Earth)
+                if planets.len() < 2 {
+                    earth_idx
+                } else {
+                    if earth_idx == 0 { 1 } else { 0 }
+                }
+            }
+        };
+
+        let selected_planet = planets[selected_idx];
+        let pos = selected_planet.position();
+
+        // Draw white circle at center (size scales with zoom, min 5, max 15)
+        let circle_radius = 8.0;
+        draw_circle(pos.x, pos.y, circle_radius, WHITE);
+        draw_circle_lines(pos.x, pos.y, circle_radius, 2.0, Color::new(0.0, 0.0, 0.0, 0.8));
+    }
+
     /// Draw HUD overlay for visualization status
     pub fn draw_visualization_hud(&self) {
         let x = 10.0;
-        let mut y = screen_height() - 120.0;
+        let mut y = screen_height() - 145.0;
         let line_height = 25.0;
         let font_size = 18.0;
 
@@ -178,6 +243,14 @@ impl VehicleManager {
             Color::new(0.5, 0.5, 0.5, 1.0)
         };
         draw_text(forces_status, x, y, font_size, forces_color);
+        y += line_height;
+
+        // Reference body status
+        let ref_body_text = match self.visualization.reference_body {
+            ReferenceBody::Earth => "  Ref: Earth (Tab)",
+            ReferenceBody::Moon => "  Ref: Moon (Tab)",
+        };
+        draw_text(ref_body_text, x, y, font_size, Color::new(0.7, 0.9, 1.0, 1.0));
     }
 
     /// Check if vehicle can convert to satellite

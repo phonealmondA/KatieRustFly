@@ -3,6 +3,7 @@
 use macroquad::prelude::*;
 use crate::entities::{Planet, Rocket};
 use crate::physics::GravitySimulator;
+use crate::systems::vehicle_manager::ReferenceBody;
 use crate::utils::vector_helper;
 
 /// Predicted trajectory point
@@ -167,6 +168,122 @@ impl TrajectoryPredictor {
         }
 
         (points, self_intersects)
+    }
+
+    /// Predict trajectory with selectable reference body (Earth or Moon)
+    ///
+    /// # Arguments
+    /// * `rocket` - The rocket to predict trajectory for
+    /// * `planets` - All planets affecting gravity
+    /// * `time_step` - Time step for simulation (default: 0.5 seconds)
+    /// * `steps` - Number of steps to predict (default: 200)
+    /// * `detect_self_intersection` - Check if trajectory intersects itself
+    /// * `reference_body` - Which body to use as reference (Earth or Moon)
+    ///
+    /// # Returns
+    /// Vector of trajectory points (relative to reference body) and whether it self-intersects
+    ///
+    /// When Moon is selected, trajectory points are transformed to Moon-relative coordinates,
+    /// showing the orbit as it would appear from the Moon's perspective.
+    pub fn predict_trajectory_with_reference(
+        &mut self,
+        rocket: &Rocket,
+        planets: &[&Planet],
+        time_step: f32,
+        steps: usize,
+        detect_self_intersection: bool,
+        reference_body: ReferenceBody,
+    ) -> (Vec<TrajectoryPoint>, bool) {
+        // First, predict in absolute coordinates
+        let (absolute_points, self_intersects) = self.predict_trajectory(
+            rocket,
+            planets,
+            time_step,
+            steps,
+            detect_self_intersection,
+        );
+
+        // If Earth is selected, return as-is (Earth is already the fixed reference)
+        if reference_body == ReferenceBody::Earth {
+            return (absolute_points, self_intersects);
+        }
+
+        // For Moon reference, transform to Moon-relative coordinates
+        // We need to recalculate Moon's position at each time step
+
+        // Find Earth and Moon indices
+        let mut earth_idx = 0;
+        let mut max_radius = 0.0f32;
+        for (i, planet) in planets.iter().enumerate() {
+            if planet.radius() > max_radius {
+                max_radius = planet.radius();
+                earth_idx = i;
+            }
+        }
+
+        let moon_idx = if planets.len() < 2 {
+            earth_idx // Fallback if no Moon
+        } else {
+            if earth_idx == 0 { 1 } else { 0 }
+        };
+
+        // Simulate Moon's position at each time step
+        let mut planet_states: Vec<(Vec2, Vec2, f32, f32)> = planets
+            .iter()
+            .map(|p| (p.position(), p.velocity(), p.mass(), p.radius()))
+            .collect();
+
+        let mut moon_positions = Vec::with_capacity(steps);
+        moon_positions.push(planet_states[moon_idx].0); // Initial Moon position
+
+        // Simulate Moon's motion
+        for _ in 1..steps {
+            // Update Moon's velocity from Earth's gravity
+            if planet_states.len() >= 2 {
+                let (moon_pos, _, moon_mass, moon_radius) = planet_states[moon_idx];
+                let (earth_pos, _, earth_mass, _) = planet_states[earth_idx];
+
+                let direction = earth_pos - moon_pos;
+                let distance = vector_helper::magnitude(direction);
+
+                if distance > moon_radius {
+                    let force = self.gravity_simulator.calculate_gravitational_force(
+                        moon_pos,
+                        moon_mass,
+                        earth_pos,
+                        earth_mass,
+                    );
+                    let acceleration = force / moon_mass;
+                    planet_states[moon_idx].1 += acceleration * time_step;
+                }
+            }
+
+            // Update Moon's position
+            let vel = planet_states[moon_idx].1;
+            planet_states[moon_idx].0 += vel * time_step;
+            moon_positions.push(planet_states[moon_idx].0);
+        }
+
+        // Transform trajectory points to Moon-relative coordinates
+        let relative_points: Vec<TrajectoryPoint> = absolute_points
+            .into_iter()
+            .enumerate()
+            .map(|(i, point)| {
+                let moon_pos = if i < moon_positions.len() {
+                    moon_positions[i]
+                } else {
+                    *moon_positions.last().unwrap_or(&Vec2::ZERO)
+                };
+
+                TrajectoryPoint {
+                    position: point.position - moon_pos, // Relative to Moon
+                    velocity: point.velocity,
+                    time: point.time,
+                }
+            })
+            .collect();
+
+        (relative_points, self_intersects)
     }
 
     /// Predict trajectory from a specific position and velocity

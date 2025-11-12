@@ -252,6 +252,10 @@ impl MultiplayerClient {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // F5 - quick save (sends request to host)
         // Note: F5 will be sent to host via input packet in handle_player_controls()

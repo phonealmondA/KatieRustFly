@@ -345,6 +345,10 @@ impl MultiplayerHost {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        if is_key_pressed(KeyCode::Tab) {
+            self.vehicle_manager.toggle_reference_body();
+            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+        }
 
         // F - save game
         if is_key_pressed(KeyCode::F) {
