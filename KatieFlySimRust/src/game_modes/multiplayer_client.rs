@@ -348,8 +348,8 @@ impl MultiplayerClient {
                 self.save_celebration_timer = 5.0;
             }
 
-            // Refuel from planet (R key)
-            let refuel_from_planet = is_key_down(KeyCode::R);
+            // Refuel from planet (R key) - single press
+            let refuel_from_planet = is_key_pressed(KeyCode::R);
 
             // Send input packet to host
             let input_packet = ClientInputPacket {
