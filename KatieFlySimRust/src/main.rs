@@ -12,8 +12,10 @@ use katie_fly_sim_rust::game_modes::{
     MultiplayerClient, MultiplayerClientResult,
 };
 use katie_fly_sim_rust::game_state::{GameMode, GameState};
+use katie_fly_sim_rust::map_config::MapConfiguration;
 use katie_fly_sim_rust::menus::{
     MainMenu, SavesMenu, SavesMenuResult,
+    MapSelectionMenu, MapSelectionResult,
     MultiplayerMenu, MultiplayerMenuResult,
     OnlineMultiplayerMenu, OnlineMultiplayerMenuResult,
     OnlineHostMenu, OnlineHostMenuResult,
@@ -54,6 +56,7 @@ async fn main() {
     let mut game_state = GameState::MainMenu;
     let mut main_menu = MainMenu::new(window_size);
     let mut saves_menu = SavesMenu::new(window_size);
+    let mut map_selection_menu = MapSelectionMenu::new(window_size);
     let mut multiplayer_menu = MultiplayerMenu::new(window_size);
     let mut online_multiplayer_menu = OnlineMultiplayerMenu::new(window_size);
     let mut online_host_menu = OnlineHostMenu::new(window_size);
@@ -106,11 +109,8 @@ async fn main() {
                 let result = saves_menu.update();
                 match result {
                     SavesMenuResult::NewGame => {
-                        log::info!("Starting new game");
-                        let mut new_game = SinglePlayerGame::new(window_size);
-                        new_game.initialize_new_game();
-                        single_player_game = Some(new_game);
-                        game_state = GameState::Playing;
+                        log::info!("New game selected, showing map selection");
+                        game_state = GameState::MapSelection;
                     }
                     SavesMenuResult::LoadGame(save_name) => {
                         log::info!("Loading game: {}", save_name);
@@ -131,6 +131,33 @@ async fn main() {
                         game_state = GameState::MainMenu;
                     }
                     SavesMenuResult::None => {}
+                }
+            }
+
+            GameState::MapSelection => {
+                let result = map_selection_menu.update();
+                match result {
+                    MapSelectionResult::MapSelected(map_name) => {
+                        log::info!("Map selected: {}", map_name);
+                        // Find the map configuration by name
+                        let selected_map = if map_name == "earth moon" {
+                            MapConfiguration::earth_moon()
+                        } else if map_name == "solar 1" {
+                            MapConfiguration::solar_1()
+                        } else {
+                            MapConfiguration::earth_moon() // Fallback
+                        };
+
+                        let mut new_game = SinglePlayerGame::new_with_map(window_size, selected_map);
+                        new_game.initialize_new_game();
+                        single_player_game = Some(new_game);
+                        game_state = GameState::Playing;
+                    }
+                    MapSelectionResult::Back => {
+                        log::info!("Returning to saves menu from map selection");
+                        game_state = GameState::SavesMenu;
+                    }
+                    MapSelectionResult::None => {}
                 }
             }
 
@@ -383,6 +410,10 @@ async fn main() {
 
             GameState::SavesMenu => {
                 saves_menu.draw();
+            }
+
+            GameState::MapSelection => {
+                map_selection_menu.render();
             }
 
             GameState::MultiplayerMenu => {

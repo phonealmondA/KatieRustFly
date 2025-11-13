@@ -136,4 +136,12 @@ impl Button {
     pub fn is_hovered(&self) -> bool {
         self.is_hovered
     }
+
+    pub fn position(&self) -> Vec2 {
+        self.position
+    }
+
+    pub fn size(&self) -> Vec2 {
+        self.size
+    }
 }

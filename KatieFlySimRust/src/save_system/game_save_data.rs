@@ -283,6 +283,9 @@ pub struct GameSaveData {
 
     // Camera (per-client, not synced in multiplayer)
     pub camera: SavedCamera,
+
+    // Map configuration
+    pub map_name: Option<String>,    // Which map is being played (e.g., "earth moon", "solar 1")
 }
 
 impl GameSaveData {
@@ -305,6 +308,7 @@ impl GameSaveData {
                 center: SavedVector2 { x: 0.0, y: 0.0 },
                 zoom: 1.0,
             },
+            map_name: None,   // No map specified by default
         }
     }
 
