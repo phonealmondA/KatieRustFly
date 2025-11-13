@@ -809,85 +809,47 @@ impl World {
     /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
     /// This ONLY does two things: add fuel to rocket, subtract mass from planet
     pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) {
-        println!("=== R KEY: handle_manual_planet_refuel called ===");
-
-        // Step 1: Get rocket position and how much fuel it needs
         let rocket = match self.rockets.get(&rocket_id) {
             Some(r) => r,
-            None => {
-                println!("  ERROR: No rocket found");
-                return;
-            }
+            None => return,
         };
 
         let rocket_pos = rocket.position();
-        let rocket_current_fuel = rocket.current_fuel();
-        let rocket_max_fuel = rocket.max_fuel();
-        let fuel_space_available = rocket_max_fuel - rocket_current_fuel;
+        let fuel_space_available = rocket.max_fuel() - rocket.current_fuel();
 
-        println!("  Rocket fuel: {:.1} / {:.1}", rocket_current_fuel, rocket_max_fuel);
-
-        // If rocket is full, nothing to do
         if fuel_space_available <= 0.0 {
-            println!("  Rocket is FULL");
             return;
         }
 
-        // Step 2: Find the nearest planet within collection range
+        // Find the nearest planet within collection range
         let mut nearest_planet_id: Option<EntityId> = None;
         let mut nearest_distance = f32::MAX;
 
-        println!("  Checking {} planets...", self.planets.len());
         for (planet_id, planet) in &self.planets {
             let distance = (rocket_pos - planet.position()).length();
-            let collection_range = planet.fuel_collection_range();
-
-            println!("    Planet: distance={:.1}, collection_range={:.1}, mass={:.1}",
-                distance, collection_range, planet.mass());
-
-            // Is this planet close enough AND closer than previous?
-            if distance <= collection_range && distance < nearest_distance {
+            if distance <= planet.fuel_collection_range() && distance < nearest_distance {
                 nearest_planet_id = Some(*planet_id);
                 nearest_distance = distance;
-                println!("    --> CLOSEST SO FAR");
             }
         }
 
-        // Step 3: If we found a planet, transfer fuel
+        // Transfer fuel from planet to rocket
         if let Some(planet_id) = nearest_planet_id {
-            println!("  Found planet at distance: {:.1}", nearest_distance);
-
-            // Calculate how much fuel to transfer this frame
-            let transfer_per_second = GameConstants::FUEL_COLLECTION_RATE;
-            let desired_amount = transfer_per_second * delta_time;
-
-            // Don't transfer more than rocket can hold
+            let transfer_rate = GameConstants::FUEL_COLLECTION_RATE;
+            let desired_amount = transfer_rate * delta_time;
             let amount = desired_amount.min(fuel_space_available);
 
-            println!("  Transfer: rate={}, delta_time={}, amount={:.4}",
-                transfer_per_second, delta_time, amount);
+            if amount > 0.0 {
+                // Add to rocket
+                if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                    rocket.add_fuel(amount);
+                }
 
-            // Don't transfer if amount is zero
-            if amount <= 0.0 {
-                println!("  ERROR: Amount is zero!");
-                return;
+                // Subtract from planet
+                if let Some(planet) = self.planets.get_mut(&planet_id) {
+                    planet.set_mass(planet.mass() - amount);
+                }
             }
-
-            // Step 4: Add fuel to rocket
-            if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
-                rocket.add_fuel(amount);
-                println!("  --> Added {:.4} fuel to rocket", amount);
-            }
-
-            // Step 5: Subtract mass from planet (1:1 ratio)
-            if let Some(planet) = self.planets.get_mut(&planet_id) {
-                let old_mass = planet.mass();
-                let new_mass = old_mass - amount;
-                planet.set_mass(new_mass);
-                println!("  --> Planet mass: {:.1} -> {:.1} (Δ {:.4})", old_mass, new_mass, amount);
-            }
-        } else {
-            println!("  NO PLANET IN RANGE");
         }
     }
 
