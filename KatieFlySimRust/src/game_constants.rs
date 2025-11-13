@@ -55,7 +55,7 @@ impl GameConstants {
 
     // Automatic fuel collection (for satellites)
     pub const FUEL_COLLECTION_RANGE: f32 = 750.0;
-    pub const FUEL_COLLECTION_RATE: f32 = 50000.0;  // Increased to make planet depletion visible
+    pub const FUEL_COLLECTION_RATE: f32 = 2000.0;  // Must be >=2000 due to f32 precision limits at planet-scale masses
     pub const FUEL_COLLECTION_MASS_RATIO: f32 = 150.0;
     pub const MIN_PLANET_MASS_FOR_COLLECTION: f32 = 50.0;
 
