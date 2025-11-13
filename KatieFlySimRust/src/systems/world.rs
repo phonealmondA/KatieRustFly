@@ -807,54 +807,65 @@ impl World {
     }
 
     /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
-    pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) -> bool {
-        // Get rocket info
-        let (rocket_pos, fuel_needed, is_full) = {
-            match self.rockets.get(&rocket_id) {
-                Some(r) => (r.position(), r.max_fuel() - r.current_fuel(), r.current_fuel() >= r.max_fuel()),
-                None => return false,
-            }
+    /// This ONLY does two things: add fuel to rocket, subtract mass from planet
+    pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) {
+        // Step 1: Get rocket position and how much fuel it needs
+        let rocket = match self.rockets.get(&rocket_id) {
+            Some(r) => r,
+            None => return, // No rocket, exit
         };
 
-        if is_full {
-            return false;
+        let rocket_pos = rocket.position();
+        let rocket_current_fuel = rocket.current_fuel();
+        let rocket_max_fuel = rocket.max_fuel();
+        let fuel_space_available = rocket_max_fuel - rocket_current_fuel;
+
+        // If rocket is full, nothing to do
+        if fuel_space_available <= 0.0 {
+            return;
         }
 
-        // Find nearest planet in range
+        // Step 2: Find the nearest planet within collection range
         let mut nearest_planet_id: Option<EntityId> = None;
-        let mut min_distance = f32::MAX;
+        let mut nearest_distance = f32::MAX;
 
         for (planet_id, planet) in &self.planets {
-            if !planet.can_collect_fuel() {
-                continue;
-            }
-
             let distance = (rocket_pos - planet.position()).length();
-            if distance <= planet.fuel_collection_range() && distance < min_distance {
-                min_distance = distance;
+            let collection_range = planet.fuel_collection_range();
+
+            // Is this planet close enough AND closer than previous?
+            if distance <= collection_range && distance < nearest_distance {
                 nearest_planet_id = Some(*planet_id);
+                nearest_distance = distance;
             }
         }
 
-        // Transfer fuel and deplete mass
-        if let Some(pid) = nearest_planet_id {
-            let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-            let desired_transfer = transfer_rate.min(fuel_needed);
+        // Step 3: If we found a planet, transfer fuel
+        if let Some(planet_id) = nearest_planet_id {
+            // Calculate how much fuel to transfer this frame
+            let transfer_per_second = GameConstants::FUEL_COLLECTION_RATE;
+            let desired_amount = transfer_per_second * delta_time;
 
-            let planet_mass = self.planets[&pid].mass();
-            let max_safe = (planet_mass - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
-            let transfer_amount = desired_transfer.min(max_safe);
+            // Don't transfer more than rocket can hold
+            let amount = desired_amount.min(fuel_space_available);
 
-            if transfer_amount > 0.0 {
-                // Add to rocket, remove from planet
-                self.rockets.get_mut(&rocket_id).unwrap().add_fuel(transfer_amount);
-                let planet = self.planets.get_mut(&pid).unwrap();
-                planet.set_mass(planet.mass() - transfer_amount);
-                return true;
+            // Don't transfer if amount is zero
+            if amount <= 0.0 {
+                return;
+            }
+
+            // Step 4: Add fuel to rocket
+            if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
+                rocket.add_fuel(amount);
+            }
+
+            // Step 5: Subtract mass from planet (1:1 ratio)
+            if let Some(planet) = self.planets.get_mut(&planet_id) {
+                let old_mass = planet.mass();
+                let new_mass = old_mass - amount;
+                planet.set_mass(new_mass);
             }
         }
-
-        false
     }
 
     // === Satellite Network Statistics ===
