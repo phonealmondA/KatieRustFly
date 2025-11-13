@@ -53,6 +53,10 @@ pub struct SinglePlayerGame {
     // Map configuration
     current_map: MapConfiguration,
     spawn_planet_id: Option<EntityId>, // Which planet to spawn on
+
+    // Planet viewing
+    focused_planet_id: Option<EntityId>, // Which planet camera is focused on (None = follow rocket)
+    planet_list: Vec<EntityId>, // List of all planet IDs for cycling
 }
 
 impl SinglePlayerGame {
@@ -83,6 +87,8 @@ impl SinglePlayerGame {
             save_celebration_timer: 0.0,
             current_map: map,
             spawn_planet_id: None,
+            focused_planet_id: None,
+            planet_list: Vec::new(),
         }
     }
 
@@ -90,6 +96,7 @@ impl SinglePlayerGame {
     pub fn initialize_new_game(&mut self) {
         self.world.clear_all();
         self.game_time = 0.0;
+        self.planet_list.clear();
 
         log::info!("Initializing new game with map: {}", self.current_map.name);
 
@@ -121,6 +128,9 @@ impl SinglePlayerGame {
                 body_config.is_pinned);
 
             let planet_id = self.world.add_planet(planet);
+
+            // Add to planet list for Tab cycling
+            self.planet_list.push(planet_id);
 
             // Track spawn planet
             if i == self.current_map.player_spawn_body_index {
@@ -495,9 +505,50 @@ impl SinglePlayerGame {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
+        // Tab key: Cycle through planets (Shift+Tab to go backwards)
         if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+            if self.planet_list.is_empty() {
+                // No planets to cycle through
+                self.focused_planet_id = None;
+            } else if is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift) {
+                // Shift+Tab: Previous planet
+                if let Some(current_id) = self.focused_planet_id {
+                    if let Some(current_index) = self.planet_list.iter().position(|&id| id == current_id) {
+                        let prev_index = if current_index == 0 {
+                            self.planet_list.len() - 1
+                        } else {
+                            current_index - 1
+                        };
+                        self.focused_planet_id = Some(self.planet_list[prev_index]);
+                    } else {
+                        self.focused_planet_id = Some(self.planet_list[0]);
+                    }
+                } else {
+                    // Start from last planet
+                    self.focused_planet_id = Some(self.planet_list[self.planet_list.len() - 1]);
+                }
+                log::info!("Switched to previous planet (ID: {:?})", self.focused_planet_id);
+            } else {
+                // Tab: Next planet
+                if let Some(current_id) = self.focused_planet_id {
+                    if let Some(current_index) = self.planet_list.iter().position(|&id| id == current_id) {
+                        let next_index = (current_index + 1) % self.planet_list.len();
+                        self.focused_planet_id = Some(self.planet_list[next_index]);
+                    } else {
+                        self.focused_planet_id = Some(self.planet_list[0]);
+                    }
+                } else {
+                    // Start from first planet
+                    self.focused_planet_id = Some(self.planet_list[0]);
+                }
+                log::info!("Switched to next planet (ID: {:?})", self.focused_planet_id);
+            }
+        }
+
+        // Escape: Exit planet view and return to rocket following
+        if is_key_pressed(KeyCode::Escape) && self.focused_planet_id.is_some() {
+            self.focused_planet_id = None;
+            log::info!("Returned to rocket following mode");
         }
 
         // Mouse wheel zoom (adaptive delta based on current zoom level for smooth zooming)
@@ -590,9 +641,17 @@ impl SinglePlayerGame {
             self.save_celebration_timer -= delta_time;
         }
 
-        // Update camera to follow active rocket
-        if let Some(rocket) = self.world.get_active_rocket() {
-            self.camera.follow(rocket.position());
+        // Update camera to follow focused planet or active rocket
+        if let Some(planet_id) = self.focused_planet_id {
+            // Follow focused planet
+            if let Some(planet) = self.world.get_planet(planet_id) {
+                self.camera.follow(planet.position());
+            }
+        } else {
+            // Follow active rocket
+            if let Some(rocket) = self.world.get_active_rocket() {
+                self.camera.follow(rocket.position());
+            }
         }
 
         self.camera.update(delta_time);
@@ -1143,6 +1202,80 @@ impl SinglePlayerGame {
 
         // Draw visualization HUD (shows T and G key status)
         self.vehicle_manager.draw_visualization_hud();
+
+        // Draw planet info if focused on a planet
+        if let Some(planet_id) = self.focused_planet_id {
+            if let Some(planet) = self.world.get_planet(planet_id) {
+                let screen_width = screen_width();
+                let screen_height = screen_height();
+
+                // Draw planet info panel at top center
+                let panel_width = 500.0;
+                let panel_height = 120.0;
+                let panel_x = (screen_width - panel_width) / 2.0;
+                let panel_y = 20.0;
+
+                // Semi-transparent background
+                draw_rectangle(
+                    panel_x,
+                    panel_y,
+                    panel_width,
+                    panel_height,
+                    Color::from_rgba(0, 0, 0, 180),
+                );
+
+                // Border
+                draw_rectangle_lines(
+                    panel_x,
+                    panel_y,
+                    panel_width,
+                    panel_height,
+                    3.0,
+                    Color::from_rgba(100, 200, 255, 255),
+                );
+
+                // Planet name
+                let name = planet.name().unwrap_or("Unknown");
+                let name_size = 40.0;
+                let name_dims = measure_text(name, None, name_size as u16, 1.0);
+                let name_x = panel_x + (panel_width - name_dims.width) / 2.0;
+                let name_y = panel_y + 45.0;
+                draw_text(name, name_x, name_y, name_size, WHITE);
+
+                // Planet mass (formatted with scientific notation)
+                let mass = planet.mass();
+                let mass_text = if mass >= 1_000_000_000.0 {
+                    format!("Mass: {:.2}B kg", mass / 1_000_000_000.0)
+                } else if mass >= 1_000_000.0 {
+                    format!("Mass: {:.2}M kg", mass / 1_000_000.0)
+                } else if mass >= 1_000.0 {
+                    format!("Mass: {:.2}K kg", mass / 1_000.0)
+                } else {
+                    format!("Mass: {:.2} kg", mass)
+                };
+                let mass_size = 24.0;
+                let mass_dims = measure_text(&mass_text, None, mass_size as u16, 1.0);
+                let mass_x = panel_x + (panel_width - mass_dims.width) / 2.0;
+                let mass_y = panel_y + 75.0;
+                draw_text(&mass_text, mass_x, mass_y, mass_size, Color::from_rgba(200, 200, 200, 255));
+
+                // Radius
+                let radius_text = format!("Radius: {:.0} pixels", planet.radius());
+                let radius_size = 24.0;
+                let radius_dims = measure_text(&radius_text, None, radius_size as u16, 1.0);
+                let radius_x = panel_x + (panel_width - radius_dims.width) / 2.0;
+                let radius_y = panel_y + 105.0;
+                draw_text(&radius_text, radius_x, radius_y, radius_size, Color::from_rgba(200, 200, 200, 255));
+
+                // Instructions
+                let instructions = "Tab: Next Planet | Shift+Tab: Previous | Esc: Follow Rocket";
+                let inst_size = 18.0;
+                let inst_y = screen_height - 30.0;
+                let inst_dims = measure_text(instructions, None, inst_size as u16, 1.0);
+                let inst_x = (screen_width - inst_dims.width) / 2.0;
+                draw_text(instructions, inst_x, inst_y, inst_size, Color::from_rgba(255, 255, 100, 255));
+            }
+        }
 
         // Draw "what a save!!" celebration text in screen space
         if let Some(screen_pos) = celebration_screen_pos {

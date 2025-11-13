@@ -85,9 +85,11 @@ impl Planet {
         self.mass >= GameConstants::MIN_PLANET_MASS_FOR_COLLECTION
     }
 
-    /// Get fuel collection range for this planet
+    /// Get fuel collection range for this planet (scales with planet size)
     pub fn fuel_collection_range(&self) -> f32 {
-        self.radius + GameConstants::FUEL_COLLECTION_RANGE
+        // Collection range extends 10% beyond planet radius
+        // This makes Sun's range huge (~1,200,000) and Pluto's tiny (~2,000)
+        self.radius * 1.10
     }
 
     /// Draw fuel collection ring around planet
