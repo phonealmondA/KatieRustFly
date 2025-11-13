@@ -92,8 +92,8 @@ impl GameConstants {
     // Basic parameters
     pub const SATELLITE_BASE_MASS: f32 = 0.8;
     pub const SATELLITE_MAX_MASS: f32 = 80.0;
-    pub const SATELLITE_MAX_FUEL: f32 = 80.0;
-    pub const SATELLITE_STARTING_FUEL: f32 = 60.0;
+    pub const SATELLITE_MAX_FUEL: f32 = 128.0;
+    pub const SATELLITE_STARTING_FUEL: f32 = 0.0;  // Start empty like rockets
     pub const SATELLITE_SIZE: f32 = 12.0;
 
     // Station-keeping and orbital maintenance

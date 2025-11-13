@@ -701,8 +701,15 @@ impl World {
         let mut collections = Vec::new();
 
         for (sat_id, satellite) in &self.satellites {
-            // Skip if satellite is already full
-            if satellite.current_fuel() >= satellite.max_fuel() {
+            let current_fuel = satellite.current_fuel();
+            let fuel_space_available = satellite.max_fuel() - current_fuel;
+
+            // Only allow refueling if satellite has less than 96 fuel
+            if current_fuel >= 96.0 {
+                continue;
+            }
+
+            if fuel_space_available <= 0.0 {
                 continue;
             }
 
@@ -717,14 +724,8 @@ impl World {
                 let collection_range = planet.radius() + GameConstants::FUEL_COLLECTION_RANGE;
 
                 if distance <= collection_range {
-                    // Calculate desired fuel amount
-                    let fuel_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-                    let fuel_capacity = satellite.max_fuel() - satellite.current_fuel();
-                    let desired_amount = fuel_rate.min(fuel_capacity);
-
-                    // Calculate safe transfer amount (don't deplete planet below minimum viable mass)
-                    let max_safe_transfer = (planet.mass() - GameConstants::MIN_VIABLE_PLANET_MASS).max(0.0);
-                    let fuel_amount = desired_amount.min(max_safe_transfer);
+                    // Transfer exactly 32 units per collection (same as manual rocket refueling)
+                    let fuel_amount = 32.0_f32.min(fuel_space_available);
 
                     if fuel_amount > 0.0 {
                         collections.push((*sat_id, *planet_id, fuel_amount));
@@ -815,7 +816,13 @@ impl World {
         };
 
         let rocket_pos = rocket.position();
-        let fuel_space_available = rocket.max_fuel() - rocket.current_fuel();
+        let current_fuel = rocket.current_fuel();
+        let fuel_space_available = rocket.max_fuel() - current_fuel;
+
+        // Only allow refueling if rocket has less than 96 fuel
+        if current_fuel >= 96.0 {
+            return;
+        }
 
         if fuel_space_available <= 0.0 {
             return;
