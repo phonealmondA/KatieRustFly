@@ -536,15 +536,20 @@ impl MultiplayerHost {
         // Receive any incoming packets from clients
         self.receive_client_packets();
 
-        // Update physics
-        self.world.update(delta_time);
-
-        // Handle manual planet refueling for host (player 0) if R key is held
-        if let Some(rocket_id) = self.active_rocket_id {
+        // Handle manual planet refueling for host (player 0) if R key is held - BEFORE world update
+        let manual_refuel_active = if let Some(rocket_id) = self.active_rocket_id {
             if is_key_down(KeyCode::R) {
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
+
+        // Update physics
+        self.world.update(delta_time, manual_refuel_active);
 
         // Handle manual planet refueling for clients
         for rocket_id in &self.refueling_rockets {

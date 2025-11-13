@@ -352,7 +352,7 @@ impl World {
 
     // === Update ===
 
-    pub fn update(&mut self, delta_time: f32) {
+    pub fn update(&mut self, delta_time: f32, manual_refuel_active: bool) {
         // Update all planets
         for planet in self.planets.values_mut() {
             planet.update(delta_time);
@@ -418,8 +418,10 @@ impl World {
         // Satellite fuel management (collection from planets)
         self.handle_satellite_fuel_collection(delta_time);
 
-        // Satellite-to-rocket fuel transfers (automatic)
-        self.handle_satellite_to_rocket_transfers(delta_time);
+        // Satellite-to-rocket fuel transfers (automatic) - DISABLED during manual planet refueling
+        if !manual_refuel_active {
+            self.handle_satellite_to_rocket_transfers(delta_time);
+        }
 
         // Check for collisions/landings between rockets and planets
         let mut rockets_to_land = Vec::new();

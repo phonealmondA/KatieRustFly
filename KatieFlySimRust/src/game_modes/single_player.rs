@@ -490,8 +490,20 @@ impl SinglePlayerGame {
         // Handle input for active rocket
         self.update_rocket_input();
 
+        // Handle manual planet refueling (R key) - BEFORE world update to prevent satellite interference
+        let manual_refuel_active = if let Some(rocket_id) = self.world.active_rocket_id() {
+            if is_key_down(KeyCode::R) {
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         // Update world (physics, entities)
-        self.world.update(delta_time);
+        self.world.update(delta_time, manual_refuel_active);
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
@@ -514,13 +526,6 @@ impl SinglePlayerGame {
         // Update save celebration timer
         if self.save_celebration_timer > 0.0 {
             self.save_celebration_timer -= delta_time;
-        }
-
-        // Handle manual planet refueling (R key)
-        if let Some(rocket_id) = self.world.active_rocket_id() {
-            if is_key_down(KeyCode::R) {
-                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
-            }
         }
 
         // Update camera to follow active rocket

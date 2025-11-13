@@ -587,7 +587,7 @@ impl SplitScreenGame {
         }
 
         // Update world physics
-        self.world.update(delta_time);
+        self.world.update(delta_time, false);
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
