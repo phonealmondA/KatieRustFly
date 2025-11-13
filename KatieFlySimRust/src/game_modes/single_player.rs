@@ -492,7 +492,7 @@ impl SinglePlayerGame {
 
         // Handle manual planet refueling (R key) - BEFORE world update to prevent satellite interference
         let manual_refuel_active = if let Some(rocket_id) = self.world.active_rocket_id() {
-            if is_key_down(KeyCode::R) {
+            if is_key_pressed(KeyCode::R) {  // Changed to is_key_pressed for single press
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
                 true
             } else {

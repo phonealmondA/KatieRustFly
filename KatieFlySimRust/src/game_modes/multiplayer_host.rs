@@ -536,9 +536,9 @@ impl MultiplayerHost {
         // Receive any incoming packets from clients
         self.receive_client_packets();
 
-        // Handle manual planet refueling for host (player 0) if R key is held - BEFORE world update
+        // Handle manual planet refueling for host (player 0) if R key is pressed - BEFORE world update
         let manual_refuel_active = if let Some(rocket_id) = self.active_rocket_id {
-            if is_key_down(KeyCode::R) {
+            if is_key_pressed(KeyCode::R) {  // Changed to is_key_pressed for single press
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
                 true
             } else {

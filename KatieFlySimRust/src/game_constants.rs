@@ -41,8 +41,8 @@ impl GameConstants {
     pub const ROCKET_SIZE: f32 = 15.0;
 
     // ==================== Fuel System Constants ====================
-    pub const ROCKET_MAX_FUEL: f32 = 100.0;
-    pub const ROCKET_STARTING_FUEL: f32 = 100.0;
+    pub const ROCKET_MAX_FUEL: f32 = 128.0;
+    pub const ROCKET_STARTING_FUEL: f32 = 0.0;  // Start empty
 
     // Manual fuel transfer
     pub const MANUAL_FUEL_TRANSFER_RATE: f32 = 10.0;
@@ -261,8 +261,8 @@ mod tests {
 
     #[test]
     fn test_fuel_constants() {
-        assert_eq!(GameConstants::ROCKET_MAX_FUEL, 100.0);
-        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 100.0);
+        assert_eq!(GameConstants::ROCKET_MAX_FUEL, 128.0);
+        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 0.0);
         assert!(GameConstants::ROCKET_STARTING_FUEL <= GameConstants::ROCKET_MAX_FUEL);
     }
 }

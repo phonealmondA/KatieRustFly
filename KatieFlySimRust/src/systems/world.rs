@@ -835,9 +835,8 @@ impl World {
 
         // Transfer fuel from planet to rocket
         if let Some(planet_id) = nearest_planet_id {
-            let transfer_rate = GameConstants::FUEL_COLLECTION_RATE;
-            let desired_amount = transfer_rate * delta_time;
-            let amount = desired_amount.min(fuel_space_available);
+            // Transfer exactly 32 units per press (1/4 of max fuel capacity)
+            let amount = 32.0_f32.min(fuel_space_available);
 
             if amount > 0.0 {
                 // Add to rocket
