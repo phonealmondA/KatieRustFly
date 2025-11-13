@@ -500,19 +500,42 @@ impl SinglePlayerGame {
             log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
         }
 
-        // Mouse wheel zoom (reduced delta for finer control)
+        // Mouse wheel zoom (adaptive delta based on current zoom level for smooth zooming)
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
-            self.camera.adjust_zoom(-mouse_wheel * 0.02);
+            let current_zoom = self.camera.zoom_level();
+            let zoom_delta = current_zoom * 0.1; // 10% of current zoom per scroll
+            self.camera.adjust_zoom(-mouse_wheel * zoom_delta);
         }
 
         // Keyboard zoom controls (E = zoom out, Q = zoom in)
         // Note: zoom_scale = 1/zoom_level, so larger zoom_level = more zoomed out
+        let current_zoom = self.camera.zoom_level();
         if is_key_down(KeyCode::Q) {
-            self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
+            let zoom_delta = current_zoom * 0.05; // 5% zoom in per frame
+            self.camera.adjust_zoom(-zoom_delta);
         }
         if is_key_down(KeyCode::E) {
-            self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
+            let zoom_delta = current_zoom * 0.05; // 5% zoom out per frame
+            self.camera.adjust_zoom(zoom_delta);
+        }
+
+        // Quick zoom presets
+        if is_key_pressed(KeyCode::Home) {
+            // Reset to close-up view of rocket
+            self.camera.set_target_zoom(1.0);
+        }
+        if is_key_pressed(KeyCode::End) {
+            // Zoom out to show entire solar system (50,000x zoom for ~96M pixel diameter view)
+            self.camera.set_target_zoom(50000.0);
+        }
+        if is_key_pressed(KeyCode::PageUp) {
+            // Quick zoom in by 50%
+            self.camera.set_target_zoom(current_zoom * 0.5);
+        }
+        if is_key_pressed(KeyCode::PageDown) {
+            // Quick zoom out by 2x
+            self.camera.set_target_zoom(current_zoom * 2.0);
         }
 
         SinglePlayerResult::Continue

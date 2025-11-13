@@ -38,17 +38,24 @@ impl MapConfiguration {
         }
     }
 
-    /// Solar System: Sun + 9 planets (Mercury to Pluto) + Moon
+    /// Solar System: Realistic scale with Sun + 9 planets + Moon
+    /// Using 1 AU = 400,000 pixels, Earth radius = 10,000 as reference
     pub fn solar_1() -> Self {
+        // Earth mass and radius as reference (unchanged from original game)
+        let earth_mass = GameConstants::MAIN_PLANET_MASS; // 198,910,000
+        let earth_radius = GameConstants::MAIN_PLANET_RADIUS; // 10,000
+        let au = 400_000.0; // 1 Astronomical Unit in pixels
+
         MapConfiguration {
             name: "solar 1".to_string(),
-            description: "Full solar system with all nine planets".to_string(),
+            description: "Realistic solar system with proper scales and distances".to_string(),
             celestial_bodies: vec![
                 // --- SUN (index 0) ---
+                // Mass: 333,000 Earth masses, Radius: 109 Earth radii
                 CelestialBodyConfig {
                     name: "Sun".to_string(),
-                    mass: 2_000_000_000.0, // 10x Earth mass for gameplay
-                    radius: 20_000.0, // 2x Earth radius
+                    mass: earth_mass * 333_000.0, // 66,236,130,000,000
+                    radius: earth_radius * 109.0, // 1,090,000 pixels (MASSIVE!)
                     color: YELLOW,
                     orbital_parent_index: None,
                     orbital_distance: None,
@@ -58,131 +65,141 @@ impl MapConfiguration {
                 },
 
                 // --- MERCURY (index 1) ---
+                // Orbital distance: 0.39 AU, Mass: 0.055 Earth, Radius: 0.38 Earth
                 CelestialBodyConfig {
                     name: "Mercury".to_string(),
-                    mass: 66_000_000.0, // ~0.33x Earth
-                    radius: 4_800.0,
+                    mass: earth_mass * 0.055, // 10,940,050
+                    radius: earth_radius * 0.38, // 3,800
                     color: Color::from_rgba(169, 169, 169, 255), // Dark gray
                     orbital_parent_index: Some(0), // Orbits Sun
-                    orbital_distance: Some(40_000.0),
-                    orbital_period: Some(200.0),
+                    orbital_distance: Some(au * 0.39), // 156,000
+                    orbital_period: None, // Calculated from physics
                     initial_angle: 0.0,
                     is_pinned: false,
                 },
 
                 // --- VENUS (index 2) ---
+                // Orbital distance: 0.72 AU, Mass: 0.815 Earth, Radius: 0.95 Earth
                 CelestialBodyConfig {
                     name: "Venus".to_string(),
-                    mass: 163_000_000.0, // ~0.82x Earth
-                    radius: 9_500.0,
+                    mass: earth_mass * 0.815, // 162,111,650
+                    radius: earth_radius * 0.95, // 9,500
                     color: Color::from_rgba(255, 198, 73, 255), // Orange-yellow
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(70_000.0),
-                    orbital_period: Some(350.0),
+                    orbital_distance: Some(au * 0.72), // 288,000
+                    orbital_period: None,
                     initial_angle: std::f32::consts::PI / 4.0, // 45 degrees
                     is_pinned: false,
                 },
 
                 // --- EARTH (index 3) ---
+                // Orbital distance: 1.0 AU, Mass: 1.0 Earth, Radius: 1.0 Earth
                 CelestialBodyConfig {
                     name: "Earth".to_string(),
-                    mass: GameConstants::MAIN_PLANET_MASS, // KEEP CURRENT MASS
-                    radius: GameConstants::MAIN_PLANET_RADIUS,
+                    mass: earth_mass, // 198,910,000 (UNCHANGED)
+                    radius: earth_radius, // 10,000 (UNCHANGED)
                     color: BLUE,
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(100_000.0),
-                    orbital_period: Some(500.0),
+                    orbital_distance: Some(au), // 400,000
+                    orbital_period: None, // Physics-calculated
                     initial_angle: std::f32::consts::PI / 2.0, // 90 degrees
-                    is_pinned: false, // NOW ORBITS!
+                    is_pinned: false, // Orbits Sun
                 },
 
                 // --- MOON (index 4) ---
+                // Orbital distance: 0.00257 AU from Earth, Mass: 0.0123 Earth, Radius: 0.27 Earth
                 CelestialBodyConfig {
                     name: "Moon".to_string(),
-                    mass: GameConstants::SECONDARY_PLANET_MASS, // KEEP CURRENT MASS
-                    radius: GameConstants::SECONDARY_PLANET_RADIUS,
+                    mass: earth_mass * 0.0123, // 2,446,593 (realistic mass)
+                    radius: earth_radius * 0.27, // 2,700 (realistic radius)
                     color: Color::from_rgba(150, 150, 150, 255),
                     orbital_parent_index: Some(3), // Orbits Earth
-                    orbital_distance: Some(15_000.0), // Closer for gameplay
-                    orbital_period: Some(50.0), // Relative to Earth
+                    orbital_distance: Some(30_000.0), // ~0.075 AU from Earth (scaled for gameplay)
+                    orbital_period: None,
                     initial_angle: 0.0,
                     is_pinned: false,
                 },
 
                 // --- MARS (index 5) ---
+                // Orbital distance: 1.52 AU, Mass: 0.107 Earth, Radius: 0.53 Earth
                 CelestialBodyConfig {
                     name: "Mars".to_string(),
-                    mass: 135_000_000.0, // ~0.68x Earth
-                    radius: 5_300.0,
+                    mass: earth_mass * 0.107, // 21,283,370
+                    radius: earth_radius * 0.53, // 5,300
                     color: Color::from_rgba(193, 68, 14, 255), // Red
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(140_000.0),
-                    orbital_period: Some(800.0),
+                    orbital_distance: Some(au * 1.52), // 608,000
+                    orbital_period: None,
                     initial_angle: std::f32::consts::PI, // 180 degrees
                     is_pinned: false,
                 },
 
                 // --- JUPITER (index 6) ---
+                // Orbital distance: 5.2 AU, Mass: 317.8 Earth, Radius: 11.2 Earth
                 CelestialBodyConfig {
                     name: "Jupiter".to_string(),
-                    mass: 400_000_000.0, // ~2x Earth (scaled down for gameplay)
-                    radius: 25_000.0, // Largest planet
+                    mass: earth_mass * 317.8, // 63,197,998,000 (REALISTIC MASS!)
+                    radius: earth_radius * 11.2, // 112,000 (HUGE!)
                     color: Color::from_rgba(201, 176, 55, 255), // Tan
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(200_000.0),
-                    orbital_period: Some(1200.0),
+                    orbital_distance: Some(au * 5.2), // 2,080,000
+                    orbital_period: None,
                     initial_angle: 3.0 * std::f32::consts::PI / 2.0, // 270 degrees
                     is_pinned: false,
                 },
 
                 // --- SATURN (index 7) ---
+                // Orbital distance: 9.54 AU, Mass: 95.2 Earth, Radius: 9.45 Earth
                 CelestialBodyConfig {
                     name: "Saturn".to_string(),
-                    mass: 350_000_000.0, // ~1.76x Earth
-                    radius: 23_000.0,
+                    mass: earth_mass * 95.2, // 18,934,232,000
+                    radius: earth_radius * 9.45, // 94,500
                     color: Color::from_rgba(250, 227, 133, 255), // Pale yellow
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(260_000.0),
-                    orbital_period: Some(1600.0),
+                    orbital_distance: Some(au * 9.54), // 3,816,000
+                    orbital_period: None,
                     initial_angle: 2.0 * std::f32::consts::PI / 3.0, // 120 degrees
                     is_pinned: false,
                 },
 
                 // --- URANUS (index 8) ---
+                // Orbital distance: 19.19 AU, Mass: 14.5 Earth, Radius: 4.0 Earth
                 CelestialBodyConfig {
                     name: "Uranus".to_string(),
-                    mass: 180_000_000.0, // ~0.9x Earth
-                    radius: 12_000.0,
+                    mass: earth_mass * 14.5, // 2,884,195,000
+                    radius: earth_radius * 4.0, // 40,000
                     color: Color::from_rgba(79, 208, 231, 255), // Cyan
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(320_000.0),
-                    orbital_period: Some(2000.0),
+                    orbital_distance: Some(au * 19.19), // 7,676,000
+                    orbital_period: None,
                     initial_angle: std::f32::consts::PI / 6.0, // 30 degrees
                     is_pinned: false,
                 },
 
                 // --- NEPTUNE (index 9) ---
+                // Orbital distance: 30.07 AU, Mass: 17.1 Earth, Radius: 3.88 Earth
                 CelestialBodyConfig {
                     name: "Neptune".to_string(),
-                    mass: 190_000_000.0, // ~0.95x Earth
-                    radius: 12_500.0,
+                    mass: earth_mass * 17.1, // 3,401,361,000
+                    radius: earth_radius * 3.88, // 38,800
                     color: Color::from_rgba(62, 84, 232, 255), // Deep blue
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(380_000.0),
-                    orbital_period: Some(2400.0),
+                    orbital_distance: Some(au * 30.07), // 12,028,000
+                    orbital_period: None,
                     initial_angle: 5.0 * std::f32::consts::PI / 6.0, // 150 degrees
                     is_pinned: false,
                 },
 
                 // --- PLUTO (index 10) ---
+                // Orbital distance: 39.48 AU, Mass: 0.0022 Earth, Radius: 0.18 Earth
                 CelestialBodyConfig {
                     name: "Pluto".to_string(),
-                    mass: 30_000_000.0, // ~0.15x Earth
-                    radius: 3_000.0,
+                    mass: earth_mass * 0.0022, // 437,602
+                    radius: earth_radius * 0.18, // 1,800
                     color: Color::from_rgba(165, 149, 140, 255), // Brown-gray
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(450_000.0),
-                    orbital_period: Some(3000.0),
+                    orbital_distance: Some(au * 39.48), // 15,792,000 (VERY FAR!)
+                    orbital_period: None,
                     initial_angle: 4.0 * std::f32::consts::PI / 3.0, // 240 degrees
                     is_pinned: false,
                 },

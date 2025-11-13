@@ -66,7 +66,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(1.0).min(100000.0); // Clamp zoom (1.0 = starting zoom/closest, 100000.0 = massively zoomed out)
+        self.target_zoom = zoom.max(0.1).min(500000.0); // Clamp zoom (0.1 = very close, 500000.0 = entire solar system)
     }
 
     /// Adjust zoom by a delta
