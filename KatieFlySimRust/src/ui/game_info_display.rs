@@ -334,7 +334,10 @@ impl GameInfoDisplay {
     fn generate_planet_info(&mut self, rocket_position: Vec2, selected_planet: Option<&Planet>, reference_body: ReferenceBody) -> String {
         if let Some(planet) = selected_planet {
             let distance = vector_helper::distance(rocket_position, planet.position());
-            let mass = planet.mass();
+            let current_mass = planet.mass();
+            let initial_mass = planet.initial_mass();
+            let mass_lost = initial_mass - current_mass;
+            let mass_percent = (current_mass / initial_mass) * 100.0;
             let radius = planet.radius();
             let fuel_range = planet.fuel_collection_range();
 
@@ -349,10 +352,12 @@ impl GameInfoDisplay {
             self.planet_panel.set_title(Some(title));
 
             format!(
-                "Mass: {:.0} kg\n\
+                "Mass: {:.0} kg ({:.2}%)\n\
+                 Initial: {:.0} kg\n\
+                 Lost: {:.0} kg\n\
                  Radius: {:.0} m\n\
                  Fuel Range: {:.0} m",
-                mass, radius, fuel_range
+                current_mass, mass_percent, initial_mass, mass_lost, radius, fuel_range
             )
         } else {
             self.planet_panel.set_title(Some("Selected Planet".to_string()));

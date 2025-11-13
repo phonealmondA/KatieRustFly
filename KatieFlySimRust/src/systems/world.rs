@@ -352,7 +352,7 @@ impl World {
 
     // === Update ===
 
-    pub fn update(&mut self, delta_time: f32) {
+    pub fn update(&mut self, delta_time: f32, manual_refuel_active: bool) {
         // Update all planets
         for planet in self.planets.values_mut() {
             planet.update(delta_time);
@@ -418,8 +418,10 @@ impl World {
         // Satellite fuel management (collection from planets)
         self.handle_satellite_fuel_collection(delta_time);
 
-        // Satellite-to-rocket fuel transfers (automatic)
-        self.handle_satellite_to_rocket_transfers(delta_time);
+        // Satellite-to-rocket fuel transfers (automatic) - DISABLED during manual planet refueling
+        if !manual_refuel_active {
+            self.handle_satellite_to_rocket_transfers(delta_time);
+        }
 
         // Check for collisions/landings between rockets and planets
         let mut rockets_to_land = Vec::new();
@@ -699,6 +701,18 @@ impl World {
         let mut collections = Vec::new();
 
         for (sat_id, satellite) in &self.satellites {
+            let current_fuel = satellite.current_fuel();
+            let fuel_space_available = satellite.max_fuel() - current_fuel;
+
+            // Only allow refueling if satellite has less than 96 fuel
+            if current_fuel >= 96.0 {
+                continue;
+            }
+
+            if fuel_space_available <= 0.0 {
+                continue;
+            }
+
             for (planet_id, planet) in &self.planets {
                 // Check if planet can provide fuel
                 if planet.mass() < GameConstants::MIN_PLANET_MASS_FOR_COLLECTION {
@@ -710,18 +724,27 @@ impl World {
                 let collection_range = planet.radius() + GameConstants::FUEL_COLLECTION_RANGE;
 
                 if distance <= collection_range {
-                    // Calculate fuel to collect
-                    let fuel_amount = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-                    collections.push((*sat_id, fuel_amount));
+                    // Transfer exactly 32 units per collection (same as manual rocket refueling)
+                    let fuel_amount = 32.0_f32.min(fuel_space_available);
+
+                    if fuel_amount > 0.0 {
+                        collections.push((*sat_id, *planet_id, fuel_amount));
+                    }
                     break; // Only collect from one planet at a time
                 }
             }
         }
 
-        // Apply fuel collection
-        for (sat_id, fuel_amount) in collections {
+        // Apply fuel collection and planet mass depletion
+        for (sat_id, planet_id, fuel_amount) in collections {
             if let Some(satellite) = self.satellites.get_mut(&sat_id) {
                 satellite.add_fuel(fuel_amount);
+            }
+
+            // Deplete planet mass by the same amount (1:1 ratio)
+            if let Some(planet) = self.planets.get_mut(&planet_id) {
+                let new_mass = planet.mass() - fuel_amount;
+                planet.set_mass(new_mass); // This automatically updates radius
             }
         }
     }
@@ -785,57 +808,55 @@ impl World {
     }
 
     /// Handle manual fuel transfer from planet to a specific rocket (triggered by "R" key)
-    pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) -> bool {
-        // Get rocket reference to check position and fuel status
+    /// This ONLY does two things: add fuel to rocket, subtract mass from planet
+    pub fn handle_manual_planet_refuel(&mut self, rocket_id: EntityId, delta_time: f32) {
         let rocket = match self.rockets.get(&rocket_id) {
             Some(r) => r,
-            None => return false,
+            None => return,
         };
 
-        // Skip if rocket is already full
-        if rocket.current_fuel() >= rocket.max_fuel() {
-            return false;
+        let rocket_pos = rocket.position();
+        let current_fuel = rocket.current_fuel();
+        let fuel_space_available = rocket.max_fuel() - current_fuel;
+
+        // Only allow refueling if rocket has less than 96 fuel
+        if current_fuel >= 96.0 {
+            return;
         }
 
-        let rocket_pos = rocket.position();
-        let fuel_needed = rocket.max_fuel() - rocket.current_fuel();
+        if fuel_space_available <= 0.0 {
+            return;
+        }
 
-        // Find nearest planet that can provide fuel
-        let mut nearest_planet: Option<(EntityId, f32)> = None;
-        let mut min_distance = f32::MAX;
+        // Find the nearest planet within collection range
+        let mut nearest_planet_id: Option<EntityId> = None;
+        let mut nearest_distance = f32::MAX;
 
         for (planet_id, planet) in &self.planets {
-            // Check if planet can provide fuel
-            if !planet.can_collect_fuel() {
-                continue;
-            }
-
-            // Check distance
             let distance = (rocket_pos - planet.position()).length();
-            let collection_range = planet.fuel_collection_range();
-
-            if distance <= collection_range && distance < min_distance {
-                min_distance = distance;
-                nearest_planet = Some((*planet_id, distance));
+            if distance <= planet.fuel_collection_range() && distance < nearest_distance {
+                nearest_planet_id = Some(*planet_id);
+                nearest_distance = distance;
             }
         }
 
-        // If found a planet in range, transfer fuel
-        if let Some((_planet_id, _distance)) = nearest_planet {
-            // Calculate transfer amount (use FUEL_COLLECTION_RATE for planets)
-            let transfer_rate = GameConstants::FUEL_COLLECTION_RATE * delta_time;
-            let transfer_amount = transfer_rate.min(fuel_needed);
+        // Transfer fuel from planet to rocket
+        if let Some(planet_id) = nearest_planet_id {
+            // Transfer exactly 32 units per press (1/4 of max fuel capacity)
+            let amount = 32.0_f32.min(fuel_space_available);
 
-            if transfer_amount > 0.0 {
-                // Add fuel to rocket (planets have infinite fuel, they don't lose mass)
+            if amount > 0.0 {
+                // Add to rocket
                 if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
-                    rocket.add_fuel(transfer_amount);
-                    return true; // Successfully refueling
+                    rocket.add_fuel(amount);
+                }
+
+                // Subtract from planet
+                if let Some(planet) = self.planets.get_mut(&planet_id) {
+                    planet.set_mass(planet.mass() - amount);
                 }
             }
         }
-
-        false // Not refueling
     }
 
     // === Satellite Network Statistics ===

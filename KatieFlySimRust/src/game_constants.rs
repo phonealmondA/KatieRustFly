@@ -41,8 +41,8 @@ impl GameConstants {
     pub const ROCKET_SIZE: f32 = 15.0;
 
     // ==================== Fuel System Constants ====================
-    pub const ROCKET_MAX_FUEL: f32 = 100.0;
-    pub const ROCKET_STARTING_FUEL: f32 = 100.0;
+    pub const ROCKET_MAX_FUEL: f32 = 128.0;
+    pub const ROCKET_STARTING_FUEL: f32 = 0.0;  // Start empty
 
     // Manual fuel transfer
     pub const MANUAL_FUEL_TRANSFER_RATE: f32 = 10.0;
@@ -55,9 +55,12 @@ impl GameConstants {
 
     // Automatic fuel collection (for satellites)
     pub const FUEL_COLLECTION_RANGE: f32 = 750.0;
-    pub const FUEL_COLLECTION_RATE: f32 = 15.0;
+    pub const FUEL_COLLECTION_RATE: f32 = 2000.0;  // Must be >=2000 due to f32 precision limits at planet-scale masses
     pub const FUEL_COLLECTION_MASS_RATIO: f32 = 150.0;
     pub const MIN_PLANET_MASS_FOR_COLLECTION: f32 = 50.0;
+
+    // Planet mass depletion system
+    pub const MIN_VIABLE_PLANET_MASS: f32 = 1000.0;  // Planets cannot be depleted below this mass
 
     // Fuel collection ring visual
     pub const FUEL_RING_THICKNESS: f32 = 3.0;
@@ -89,8 +92,8 @@ impl GameConstants {
     // Basic parameters
     pub const SATELLITE_BASE_MASS: f32 = 0.8;
     pub const SATELLITE_MAX_MASS: f32 = 80.0;
-    pub const SATELLITE_MAX_FUEL: f32 = 80.0;
-    pub const SATELLITE_STARTING_FUEL: f32 = 60.0;
+    pub const SATELLITE_MAX_FUEL: f32 = 128.0;
+    pub const SATELLITE_STARTING_FUEL: f32 = 0.0;  // Start empty like rockets
     pub const SATELLITE_SIZE: f32 = 12.0;
 
     // Station-keeping and orbital maintenance
@@ -258,8 +261,8 @@ mod tests {
 
     #[test]
     fn test_fuel_constants() {
-        assert_eq!(GameConstants::ROCKET_MAX_FUEL, 100.0);
-        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 100.0);
+        assert_eq!(GameConstants::ROCKET_MAX_FUEL, 128.0);
+        assert_eq!(GameConstants::ROCKET_STARTING_FUEL, 0.0);
         assert!(GameConstants::ROCKET_STARTING_FUEL <= GameConstants::ROCKET_MAX_FUEL);
     }
 }

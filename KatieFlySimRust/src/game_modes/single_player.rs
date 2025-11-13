@@ -490,8 +490,20 @@ impl SinglePlayerGame {
         // Handle input for active rocket
         self.update_rocket_input();
 
+        // Handle manual planet refueling (R key) - BEFORE world update to prevent satellite interference
+        let manual_refuel_active = if let Some(rocket_id) = self.world.active_rocket_id() {
+            if is_key_pressed(KeyCode::R) {  // Changed to is_key_pressed for single press
+                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
         // Update world (physics, entities)
-        self.world.update(delta_time);
+        self.world.update(delta_time, manual_refuel_active);
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
@@ -514,13 +526,6 @@ impl SinglePlayerGame {
         // Update save celebration timer
         if self.save_celebration_timer > 0.0 {
             self.save_celebration_timer -= delta_time;
-        }
-
-        // Handle manual planet refueling (R key)
-        if let Some(rocket_id) = self.world.active_rocket_id() {
-            if is_key_down(KeyCode::R) {
-                self.world.handle_manual_planet_refuel(rocket_id, delta_time);
-            }
         }
 
         // Update camera to follow active rocket
@@ -1046,10 +1051,18 @@ impl SinglePlayerGame {
         use crate::systems::ReferenceBody;
         let reference_body = self.vehicle_manager.visualization().reference_body;
 
-        // Use direct index: planets[0] = Moon, planets[1] = Earth
+        // Find planets by mass (not array index) to handle HashMap unpredictable ordering
+        // Earth has mass ~198M (large), Moon has mass ~11M (small)
+        const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
         let selected_planet = match reference_body {
-            ReferenceBody::Earth => all_planets.get(1).copied(),
-            ReferenceBody::Moon => all_planets.get(0).copied(),
+            ReferenceBody::Earth => {
+                // Find planet with mass > threshold (Earth)
+                all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
+            },
+            ReferenceBody::Moon => {
+                // Find planet with mass < threshold (Moon)
+                all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
+            },
         };
 
         self.info_display.update_all_panels(

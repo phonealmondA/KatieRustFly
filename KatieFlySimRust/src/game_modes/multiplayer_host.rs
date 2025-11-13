@@ -536,15 +536,20 @@ impl MultiplayerHost {
         // Receive any incoming packets from clients
         self.receive_client_packets();
 
-        // Update physics
-        self.world.update(delta_time);
-
-        // Handle manual planet refueling for host (player 0) if R key is held
-        if let Some(rocket_id) = self.active_rocket_id {
-            if is_key_down(KeyCode::R) {
+        // Handle manual planet refueling for host (player 0) if R key is pressed - BEFORE world update
+        let manual_refuel_active = if let Some(rocket_id) = self.active_rocket_id {
+            if is_key_pressed(KeyCode::R) {  // Changed to is_key_pressed for single press
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
+                true
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
+
+        // Update physics
+        self.world.update(delta_time, manual_refuel_active);
 
         // Handle manual planet refueling for clients
         for rocket_id in &self.refueling_rockets {
@@ -1242,15 +1247,29 @@ impl MultiplayerHost {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
                 let satellite_stats = self.world.get_satellite_network_stats();
 
-                // Default to Earth (first planet) for multiplayer
+                // Get selected planet for panels 2 and 3 based on reference body (same as single player)
                 use crate::systems::ReferenceBody;
-                let selected_planet = all_planets.get(0).copied();
+                let reference_body = self.vehicle_manager.visualization().reference_body;
+
+                // Find planets by mass (not array index) to handle HashMap unpredictable ordering
+                // Earth has mass ~198M (large), Moon has mass ~11M (small)
+                const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
+                let selected_planet = match reference_body {
+                    ReferenceBody::Earth => {
+                        // Find planet with mass > threshold (Earth)
+                        all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
+                    },
+                    ReferenceBody::Moon => {
+                        // Find planet with mass < threshold (Moon)
+                        all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
+                    },
+                };
 
                 self.game_info.update_all_panels(
                     Some(rocket),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    reference_body,  // Pass reference body so UI knows which planet
                     self.player_state.thrust_level(),
                     true,  // network_connected (hosting)
                     Some(0),  // Host is player 0

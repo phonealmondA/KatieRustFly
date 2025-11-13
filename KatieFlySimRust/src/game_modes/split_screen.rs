@@ -587,7 +587,7 @@ impl SplitScreenGame {
         }
 
         // Update world physics
-        self.world.update(delta_time);
+        self.world.update(delta_time, false);
 
         // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
         let destroyed_rockets = self.world.take_destroyed_rockets();
@@ -641,7 +641,7 @@ impl SplitScreenGame {
         }
 
         // Handle manual planet refueling (R key for both players - shared key)
-        if is_key_down(KeyCode::R) {
+        if is_key_pressed(KeyCode::R) {  // Changed to is_key_pressed for single press
             if let Some(rocket_id) = self.player1_rocket_id {
                 self.world.handle_manual_planet_refuel(rocket_id, delta_time);
             }
