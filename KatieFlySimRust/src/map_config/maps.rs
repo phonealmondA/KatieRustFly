@@ -39,12 +39,13 @@ impl MapConfiguration {
     }
 
     /// Solar System: Realistic scale with Sun + 9 planets + Moon
-    /// Using 1 AU = 400,000 pixels, Earth radius = 10,000 as reference
+    /// Using 1 AU = 3,000,000 pixels, Earth radius = 10,000 as reference
+    /// This ensures all planets orbit outside Sun's 1,090,000 pixel radius
     pub fn solar_1() -> Self {
         // Earth mass and radius as reference (unchanged from original game)
         let earth_mass = GameConstants::MAIN_PLANET_MASS; // 198,910,000
         let earth_radius = GameConstants::MAIN_PLANET_RADIUS; // 10,000
-        let au = 400_000.0; // 1 Astronomical Unit in pixels
+        let au = 3_000_000.0; // 1 Astronomical Unit in pixels (7.5x larger than before)
 
         MapConfiguration {
             name: "solar 1".to_string(),
@@ -72,7 +73,7 @@ impl MapConfiguration {
                     radius: earth_radius * 0.38, // 3,800
                     color: Color::from_rgba(169, 169, 169, 255), // Dark gray
                     orbital_parent_index: Some(0), // Orbits Sun
-                    orbital_distance: Some(au * 0.39), // 156,000
+                    orbital_distance: Some(au * 0.39), // 1,170,000 (safely outside Sun!)
                     orbital_period: None, // Calculated from physics
                     initial_angle: 0.0,
                     is_pinned: false,
@@ -86,7 +87,7 @@ impl MapConfiguration {
                     radius: earth_radius * 0.95, // 9,500
                     color: Color::from_rgba(255, 198, 73, 255), // Orange-yellow
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 0.72), // 288,000
+                    orbital_distance: Some(au * 0.72), // 2,160,000
                     orbital_period: None,
                     initial_angle: std::f32::consts::PI / 4.0, // 45 degrees
                     is_pinned: false,
@@ -100,7 +101,7 @@ impl MapConfiguration {
                     radius: earth_radius, // 10,000 (UNCHANGED)
                     color: BLUE,
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au), // 400,000
+                    orbital_distance: Some(au), // 3,000,000
                     orbital_period: None, // Physics-calculated
                     initial_angle: std::f32::consts::PI / 2.0, // 90 degrees
                     is_pinned: false, // Orbits Sun
@@ -128,7 +129,7 @@ impl MapConfiguration {
                     radius: earth_radius * 0.53, // 5,300
                     color: Color::from_rgba(193, 68, 14, 255), // Red
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 1.52), // 608,000
+                    orbital_distance: Some(au * 1.52), // 4,560,000
                     orbital_period: None,
                     initial_angle: std::f32::consts::PI, // 180 degrees
                     is_pinned: false,
@@ -142,7 +143,7 @@ impl MapConfiguration {
                     radius: earth_radius * 11.2, // 112,000 (HUGE!)
                     color: Color::from_rgba(201, 176, 55, 255), // Tan
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 5.2), // 2,080,000
+                    orbital_distance: Some(au * 5.2), // 15,600,000
                     orbital_period: None,
                     initial_angle: 3.0 * std::f32::consts::PI / 2.0, // 270 degrees
                     is_pinned: false,
@@ -156,7 +157,7 @@ impl MapConfiguration {
                     radius: earth_radius * 9.45, // 94,500
                     color: Color::from_rgba(250, 227, 133, 255), // Pale yellow
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 9.54), // 3,816,000
+                    orbital_distance: Some(au * 9.54), // 28,620,000
                     orbital_period: None,
                     initial_angle: 2.0 * std::f32::consts::PI / 3.0, // 120 degrees
                     is_pinned: false,
@@ -170,7 +171,7 @@ impl MapConfiguration {
                     radius: earth_radius * 4.0, // 40,000
                     color: Color::from_rgba(79, 208, 231, 255), // Cyan
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 19.19), // 7,676,000
+                    orbital_distance: Some(au * 19.19), // 57,570,000
                     orbital_period: None,
                     initial_angle: std::f32::consts::PI / 6.0, // 30 degrees
                     is_pinned: false,
@@ -184,7 +185,7 @@ impl MapConfiguration {
                     radius: earth_radius * 3.88, // 38,800
                     color: Color::from_rgba(62, 84, 232, 255), // Deep blue
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 30.07), // 12,028,000
+                    orbital_distance: Some(au * 30.07), // 90,210,000
                     orbital_period: None,
                     initial_angle: 5.0 * std::f32::consts::PI / 6.0, // 150 degrees
                     is_pinned: false,
@@ -198,7 +199,7 @@ impl MapConfiguration {
                     radius: earth_radius * 0.18, // 1,800
                     color: Color::from_rgba(165, 149, 140, 255), // Brown-gray
                     orbital_parent_index: Some(0),
-                    orbital_distance: Some(au * 39.48), // 15,792,000 (VERY FAR!)
+                    orbital_distance: Some(au * 39.48), // 118,440,000 (VERY FAR!)
                     orbital_period: None,
                     initial_angle: 4.0 * std::f32::consts::PI / 3.0, // 240 degrees
                     is_pinned: false,

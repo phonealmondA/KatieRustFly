@@ -54,9 +54,9 @@ pub struct SinglePlayerGame {
     current_map: MapConfiguration,
     spawn_planet_id: Option<EntityId>, // Which planet to spawn on
 
-    // Planet viewing
-    focused_planet_id: Option<EntityId>, // Which planet camera is focused on (None = follow rocket)
-    planet_list: Vec<EntityId>, // List of all planet IDs for cycling
+    // Planet focus for Tab key viewing (camera stays on rocket)
+    focused_planet_id: Option<EntityId>,
+    planet_list: Vec<EntityId>,
 }
 
 impl SinglePlayerGame {
@@ -96,7 +96,6 @@ impl SinglePlayerGame {
     pub fn initialize_new_game(&mut self) {
         self.world.clear_all();
         self.game_time = 0.0;
-        self.planet_list.clear();
 
         log::info!("Initializing new game with map: {}", self.current_map.name);
 
@@ -105,6 +104,10 @@ impl SinglePlayerGame {
             &self.current_map,
             GameConstants::G,
         );
+
+        // Clear and build planet list for Tab cycling
+        self.planet_list.clear();
+        self.focused_planet_id = None;
 
         // Create all celestial bodies from map configuration
         for (i, body_config) in self.current_map.celestial_bodies.iter().enumerate() {
@@ -505,50 +508,60 @@ impl SinglePlayerGame {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
-        // Tab key: Cycle through planets (Shift+Tab to go backwards)
-        if is_key_pressed(KeyCode::Tab) {
-            if self.planet_list.is_empty() {
-                // No planets to cycle through
-                self.focused_planet_id = None;
-            } else if is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift) {
+
+        // Planet selection with Tab key (camera stays on rocket)
+        if is_key_pressed(KeyCode::Tab) && !self.planet_list.is_empty() {
+            let shift_held = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+
+            if shift_held {
                 // Shift+Tab: Previous planet
-                if let Some(current_id) = self.focused_planet_id {
-                    if let Some(current_index) = self.planet_list.iter().position(|&id| id == current_id) {
-                        let prev_index = if current_index == 0 {
+                if let Some(focused_id) = self.focused_planet_id {
+                    // Find current index
+                    if let Some(current_idx) = self.planet_list.iter().position(|&id| id == focused_id) {
+                        // Move to previous, wrap around
+                        let prev_idx = if current_idx == 0 {
                             self.planet_list.len() - 1
                         } else {
-                            current_index - 1
+                            current_idx - 1
                         };
-                        self.focused_planet_id = Some(self.planet_list[prev_index]);
-                    } else {
-                        self.focused_planet_id = Some(self.planet_list[0]);
+                        self.focused_planet_id = Some(self.planet_list[prev_idx]);
+                        if let Some(planet) = self.world.get_planet(self.planet_list[prev_idx]) {
+                            log::info!("Focused on previous planet: {}", planet.name().unwrap_or("Unknown"));
+                        }
                     }
                 } else {
-                    // Start from last planet
+                    // No planet focused, select last
                     self.focused_planet_id = Some(self.planet_list[self.planet_list.len() - 1]);
+                    if let Some(planet) = self.world.get_planet(self.planet_list[self.planet_list.len() - 1]) {
+                        log::info!("Focused on planet: {}", planet.name().unwrap_or("Unknown"));
+                    }
                 }
-                log::info!("Switched to previous planet (ID: {:?})", self.focused_planet_id);
             } else {
                 // Tab: Next planet
-                if let Some(current_id) = self.focused_planet_id {
-                    if let Some(current_index) = self.planet_list.iter().position(|&id| id == current_id) {
-                        let next_index = (current_index + 1) % self.planet_list.len();
-                        self.focused_planet_id = Some(self.planet_list[next_index]);
-                    } else {
-                        self.focused_planet_id = Some(self.planet_list[0]);
+                if let Some(focused_id) = self.focused_planet_id {
+                    // Find current index
+                    if let Some(current_idx) = self.planet_list.iter().position(|&id| id == focused_id) {
+                        // Move to next, wrap around
+                        let next_idx = (current_idx + 1) % self.planet_list.len();
+                        self.focused_planet_id = Some(self.planet_list[next_idx]);
+                        if let Some(planet) = self.world.get_planet(self.planet_list[next_idx]) {
+                            log::info!("Focused on next planet: {}", planet.name().unwrap_or("Unknown"));
+                        }
                     }
                 } else {
-                    // Start from first planet
+                    // No planet focused, select first
                     self.focused_planet_id = Some(self.planet_list[0]);
+                    if let Some(planet) = self.world.get_planet(self.planet_list[0]) {
+                        log::info!("Focused on planet: {}", planet.name().unwrap_or("Unknown"));
+                    }
                 }
-                log::info!("Switched to next planet (ID: {:?})", self.focused_planet_id);
             }
         }
 
-        // Escape: Exit planet view and return to rocket following
+        // Escape key: Clear planet focus (return to following rocket only)
         if is_key_pressed(KeyCode::Escape) && self.focused_planet_id.is_some() {
             self.focused_planet_id = None;
-            log::info!("Returned to rocket following mode");
+            log::info!("Cleared planet focus, following rocket");
         }
 
         // Mouse wheel zoom (adaptive delta based on current zoom level for smooth zooming)
@@ -577,8 +590,8 @@ impl SinglePlayerGame {
             self.camera.set_target_zoom(1.0);
         }
         if is_key_pressed(KeyCode::End) {
-            // Zoom out to show entire solar system (50,000x zoom for ~96M pixel diameter view)
-            self.camera.set_target_zoom(50000.0);
+            // Zoom out to show entire solar system (~237M pixel diameter view)
+            self.camera.set_target_zoom(200000.0);
         }
         if is_key_pressed(KeyCode::PageUp) {
             // Quick zoom in by 50%
@@ -641,17 +654,9 @@ impl SinglePlayerGame {
             self.save_celebration_timer -= delta_time;
         }
 
-        // Update camera to follow focused planet or active rocket
-        if let Some(planet_id) = self.focused_planet_id {
-            // Follow focused planet
-            if let Some(planet) = self.world.get_planet(planet_id) {
-                self.camera.follow(planet.position());
-            }
-        } else {
-            // Follow active rocket
-            if let Some(rocket) = self.world.get_active_rocket() {
-                self.camera.follow(rocket.position());
-            }
+        // Update camera to ALWAYS follow active rocket (never planets)
+        if let Some(rocket) = self.world.get_active_rocket() {
+            self.camera.follow(rocket.position());
         }
 
         self.camera.update(delta_time);

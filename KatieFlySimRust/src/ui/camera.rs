@@ -66,7 +66,7 @@ impl Camera {
 
     /// Set target zoom level
     pub fn set_target_zoom(&mut self, zoom: f32) {
-        self.target_zoom = zoom.max(0.1).min(500000.0); // Clamp zoom (0.1 = very close, 500000.0 = entire solar system)
+        self.target_zoom = zoom.max(0.1).min(2000000.0); // Clamp zoom (0.1 = very close, 2000000.0 = entire solar system)
     }
 
     /// Adjust zoom by a delta
@@ -165,11 +165,11 @@ mod tests {
     fn test_zoom_clamping() {
         let mut camera = Camera::new(Vec2::new(1920.0, 1080.0));
 
-        camera.set_target_zoom(200000.0); // Too high (too zoomed out)
-        assert_eq!(camera.target_zoom, 100000.0);
+        camera.set_target_zoom(3000000.0); // Too high (too zoomed out)
+        assert_eq!(camera.target_zoom, 2000000.0); // Max is 2,000,000
 
         camera.set_target_zoom(0.01); // Too low (too zoomed in)
-        assert_eq!(camera.target_zoom, 1.0); // Minimum is now 1.0 (starting zoom)
+        assert_eq!(camera.target_zoom, 0.1); // Minimum is 0.1
     }
 
     #[test]
