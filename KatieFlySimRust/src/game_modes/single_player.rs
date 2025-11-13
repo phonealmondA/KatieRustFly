@@ -148,12 +148,16 @@ impl SinglePlayerGame {
                     rocket_spawn_position.x, rocket_spawn_position.y,
                     rocket_spawn_velocity.x, rocket_spawn_velocity.y);
 
-                let rocket = Rocket::new(
+                let mut rocket = Rocket::new(
                     rocket_spawn_position,
                     rocket_spawn_velocity,
                     WHITE,
                     GameConstants::ROCKET_BASE_MASS,
                 );
+
+                // Set rocket to 100% fuel for better mass and gravity pull
+                rocket.set_fuel(GameConstants::ROCKET_MAX_FUEL);
+                log::info!("Rocket spawned with 100% fuel ({} kg)", GameConstants::ROCKET_MAX_FUEL);
 
                 let rocket_id = self.world.add_rocket(rocket);
 

@@ -193,13 +193,16 @@ impl World {
     /// Convert rocket to satellite
     pub fn convert_rocket_to_satellite(&mut self, rocket_id: EntityId) -> Option<EntityId> {
         if let Some(rocket) = self.rockets.remove(&rocket_id) {
+            // Give satellite 100% fuel for better mass and gravity pull
             let satellite = Satellite::from_rocket(
                 rocket.position(),
                 rocket.velocity(),
-                rocket.current_fuel(),
+                GameConstants::SATELLITE_MAX_FUEL,
             );
 
             let satellite_id = self.add_satellite(satellite);
+
+            log::info!("Converted rocket to satellite with 100% fuel ({} kg)", GameConstants::SATELLITE_MAX_FUEL);
 
             // If this was the active rocket, clear it
             if self.active_rocket_id == Some(rocket_id) {
