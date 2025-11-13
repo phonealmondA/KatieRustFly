@@ -904,24 +904,15 @@ Solar system map spans 900,000 pixels (Sun to Pluto):
 
 | Phase | Effort | Priority |
 |-------|--------|----------|
-| Phase 1: Map Config System | 4 hours | HIGH |
-| Phase 2: Game Init Refactor | 3 hours | HIGH |
-| Phase 3: Entity Updates | 1 hour | MEDIUM |
-| Phase 4: Physics Updates | 2 hours | HIGH |
-| Phase 5: Camera System | 3 hours | MEDIUM |
-| Phase 6: Save/Load | 1 hour | LOW |
-| Phase 7: Map Selection UI | 2 hours | MEDIUM |
-| Phase 8: Testing & Balance | 4 hours | HIGH |
-| Phase 9: Documentation | 1 hour | LOW |
+| Phase 1: Map Config System | HIGH |
+| Phase 2: Game Init Refactor | HIGH |
+| Phase 3: Entity Updates | MEDIUM |
+| Phase 4: Physics Updates | HIGH |
+| Phase 5: Camera System | MEDIUM |
+| Phase 6: Save/Load | LOW |
+| Phase 7: Map Selection UI | MEDIUM |
+| Phase 8: Testing & Balance | HIGH |
+| Phase 9: Documentation | LOW |
 | **TOTAL** | **21 hours** | |
 
 ---
-
-## 📝 NEXT STEPS
-
-1. **Review this plan** and confirm approach
-2. **Start with Phase 1** - create map configuration system
-3. **Test incrementally** - verify each phase before moving to next
-4. **Iterate on balance** - planet masses/distances will need tuning
-
-This plan provides a complete roadmap for transforming the game from a 2-body system to a flexible multi-map architecture with a full solar system implementation.
