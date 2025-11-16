@@ -341,11 +341,8 @@ impl GameInfoDisplay {
             let radius = planet.radius();
             let fuel_range = planet.fuel_collection_range();
 
-            // Determine planet name from reference body
-            let planet_name = match reference_body {
-                ReferenceBody::Earth => "Earth",
-                ReferenceBody::Moon => "Moon",
-            };
+            // Get planet name (use actual planet name from object)
+            let planet_name = planet.name().unwrap_or("Unknown");
 
             // Update panel title dynamically
             let title = format!("Selected Planet: {}", planet_name);
@@ -374,11 +371,8 @@ impl GameInfoDisplay {
             let planet_mass = planet.mass();
             let planet_radius = planet.radius();
 
-            // Determine planet name from reference body
-            let planet_name = match reference_body {
-                ReferenceBody::Earth => "Earth",
-                ReferenceBody::Moon => "Moon",
-            };
+            // Get planet name (use actual planet name from object)
+            let planet_name = planet.name().unwrap_or("Unknown");
 
             // Update panel title dynamically
             let title = format!("Orbital Info of {}", planet_name);

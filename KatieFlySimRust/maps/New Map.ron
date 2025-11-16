@@ -1,0 +1,24 @@
+(
+    name: "New Map",
+    description: "A custom map",
+    celestial_bodies: [
+        (
+            name: "Body 1",
+            mass: 100000000.0,
+            radius: 5000.0,
+            color: (
+                r: 0.5,
+                g: 0.5,
+                b: 0.8,
+                a: 1.0,
+            ),
+            orbital_parent_index: None,
+            orbital_distance: None,
+            orbital_period: None,
+            initial_angle: 0.0,
+            is_pinned: true,
+        ),
+    ],
+    player_spawn_body_index: 0,
+    central_body_index: None,
+)

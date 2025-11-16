@@ -114,9 +114,8 @@ impl World {
             }
 
             // Remove fuel (1 unit becomes the bullet)
-            // Use set_fuel_direct to avoid momentum preservation - the bullet carries the mass/momentum
             let new_fuel = rocket.current_fuel() - 1.0;
-            rocket.set_fuel_direct(new_fuel);
+            rocket.set_fuel(new_fuel);
 
             // Get rocket's facing direction
             let rotation = rocket.rotation();
@@ -193,13 +192,16 @@ impl World {
     /// Convert rocket to satellite
     pub fn convert_rocket_to_satellite(&mut self, rocket_id: EntityId) -> Option<EntityId> {
         if let Some(rocket) = self.rockets.remove(&rocket_id) {
+            // Give satellite 100% fuel for better mass and gravity pull
             let satellite = Satellite::from_rocket(
                 rocket.position(),
                 rocket.velocity(),
-                rocket.current_fuel(),
+                GameConstants::SATELLITE_MAX_FUEL,
             );
 
             let satellite_id = self.add_satellite(satellite);
+
+            log::info!("Converted rocket to satellite with 100% fuel ({} kg)", GameConstants::SATELLITE_MAX_FUEL);
 
             // If this was the active rocket, clear it
             if self.active_rocket_id == Some(rocket_id) {
@@ -451,17 +453,18 @@ impl World {
                         // Calculate surface position (normalize direction and place on surface)
                         let direction = (rocket.position() - planet.position()).normalize();
                         let surface_position = planet.position() + direction * planet.radius();
-                        rockets_to_land.push((*rocket_id, *planet_id, surface_position));
+                        let planet_velocity = planet.velocity();
+                        rockets_to_land.push((*rocket_id, *planet_id, surface_position, planet_velocity));
                         break;
                     }
                 }
             }
         }
 
-        // Land rockets on planets
-        for (rocket_id, planet_id, surface_position) in rockets_to_land {
+        // Land rockets on planets (matching planet velocity to stay in orbit)
+        for (rocket_id, planet_id, surface_position, planet_velocity) in rockets_to_land {
             if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
-                rocket.land_on_planet(planet_id, surface_position);
+                rocket.land_on_planet(planet_id, surface_position, planet_velocity);
             }
         }
 
@@ -616,35 +619,45 @@ impl World {
             });
         }
 
-        // Apply planet-to-planet gravity
-        // Following C++ pattern: first planet (Earth, ID 0) is pinned and only applies outbound gravity
-        let mut planet_ids: Vec<EntityId> = self.planets.keys().copied().collect();
-        planet_ids.sort(); // Ensure consistent ordering (first planet added = Earth)
+        // Apply planet-to-planet gravity (N-body simulation)
+        // Calculate forces between all planet pairs, respecting pinned status
+        let planet_ids: Vec<EntityId> = self.planets.keys().copied().collect();
 
-        if planet_ids.len() >= 2 {
-            let earth_id = planet_ids[0]; // First planet is Earth (pinned/stationary)
+        // For each pair of planets, calculate gravitational force
+        for i in 0..planet_ids.len() {
+            for j in (i + 1)..planet_ids.len() {
+                let id_a = planet_ids[i];
+                let id_b = planet_ids[j];
 
-            // Apply gravity FROM Earth TO all other planets (one-way to keep Earth stationary)
-            for &other_id in &planet_ids[1..] {
-                if earth_id == other_id {
-                    continue;
-                }
+                // Get positions, masses, and pinned status
+                let (pos_a, mass_a, is_pinned_a) = {
+                    let p = &self.planets[&id_a];
+                    (p.position(), p.mass(), p.is_pinned())
+                };
 
-                // Get immutable references to calculate force
-                let earth = &self.planets[&earth_id];
-                let other = &self.planets[&other_id];
+                let (pos_b, mass_b, is_pinned_b) = {
+                    let p = &self.planets[&id_b];
+                    (p.position(), p.mass(), p.is_pinned())
+                };
 
+                // Calculate gravitational force from A to B
                 let force = self.gravity_simulator.calculate_gravitational_force(
-                    other.position(),
-                    other.mass(),
-                    earth.position(),
-                    earth.mass(),
+                    pos_a, mass_a, pos_b, mass_b,
                 );
 
-                // Apply acceleration to the other planet (moon)
-                let acceleration = force / other.mass();
-                let other_planet = self.planets.get_mut(&other_id).unwrap();
-                other_planet.set_velocity(other_planet.velocity() + acceleration * delta_time);
+                // Apply force to planet A (unless pinned)
+                if !is_pinned_a {
+                    let accel_a = force / mass_a;
+                    let planet_a = self.planets.get_mut(&id_a).unwrap();
+                    planet_a.set_velocity(planet_a.velocity() + accel_a * delta_time);
+                }
+
+                // Apply opposite force to planet B (unless pinned)
+                if !is_pinned_b {
+                    let accel_b = -force / mass_b; // Opposite direction
+                    let planet_b = self.planets.get_mut(&id_b).unwrap();
+                    planet_b.set_velocity(planet_b.velocity() + accel_b * delta_time);
+                }
             }
         }
 

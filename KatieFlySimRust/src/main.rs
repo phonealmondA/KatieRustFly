@@ -12,8 +12,10 @@ use katie_fly_sim_rust::game_modes::{
     MultiplayerClient, MultiplayerClientResult,
 };
 use katie_fly_sim_rust::game_state::{GameMode, GameState};
+use katie_fly_sim_rust::map_config::MapConfiguration;
 use katie_fly_sim_rust::menus::{
     MainMenu, SavesMenu, SavesMenuResult,
+    MapSelectionMenu, MapSelectionResult,
     MultiplayerMenu, MultiplayerMenuResult,
     OnlineMultiplayerMenu, OnlineMultiplayerMenuResult,
     OnlineHostMenu, OnlineHostMenuResult,
@@ -54,6 +56,7 @@ async fn main() {
     let mut game_state = GameState::MainMenu;
     let mut main_menu = MainMenu::new(window_size);
     let mut saves_menu = SavesMenu::new(window_size);
+    let mut map_selection_menu = MapSelectionMenu::new(window_size);
     let mut multiplayer_menu = MultiplayerMenu::new(window_size);
     let mut online_multiplayer_menu = OnlineMultiplayerMenu::new(window_size);
     let mut online_host_menu = OnlineHostMenu::new(window_size);
@@ -72,13 +75,20 @@ async fn main() {
     let mut frame_count = 0u64;
     let mut fps_timer = 0.0f32;
 
-    log::info!("Entering main game loop");
+    // Fixed timestep for smooth physics
+    const PHYSICS_TIMESTEP: f32 = 1.0 / 120.0; // 120 Hz physics for ultra-smooth movement
+    let mut physics_accumulator = 0.0f32;
+
+    log::info!("Entering main game loop with fixed timestep physics (120 Hz)");
 
     // Main game loop
     loop {
-        let delta_time = get_frame_time();
+        let delta_time = get_frame_time().min(0.1); // Cap max frame time to prevent spiral of death
         frame_count += 1;
         fps_timer += delta_time;
+
+        // Accumulate frame time for fixed timestep physics
+        physics_accumulator += delta_time;
 
         // Handle input based on game state
         match game_state {
@@ -106,11 +116,8 @@ async fn main() {
                 let result = saves_menu.update();
                 match result {
                     SavesMenuResult::NewGame => {
-                        log::info!("Starting new game");
-                        let mut new_game = SinglePlayerGame::new(window_size);
-                        new_game.initialize_new_game();
-                        single_player_game = Some(new_game);
-                        game_state = GameState::Playing;
+                        log::info!("New game selected, showing map selection");
+                        game_state = GameState::MapSelection;
                     }
                     SavesMenuResult::LoadGame(save_name) => {
                         log::info!("Loading game: {}", save_name);
@@ -134,6 +141,34 @@ async fn main() {
                 }
             }
 
+            GameState::MapSelection => {
+                let result = map_selection_menu.update();
+                match result {
+                    MapSelectionResult::MapSelected(map_name) => {
+                        log::info!("Map selected: {}", map_name);
+                        // Find the map configuration by name from all available maps
+                        let all_maps = MapConfiguration::all_maps();
+                        let selected_map = all_maps
+                            .into_iter()
+                            .find(|m| m.name == map_name)
+                            .unwrap_or_else(|| {
+                                log::warn!("Map '{}' not found, using default", map_name);
+                                MapConfiguration::earth_moon()
+                            });
+
+                        let mut new_game = SinglePlayerGame::new_with_map(window_size, selected_map);
+                        new_game.initialize_new_game();
+                        single_player_game = Some(new_game);
+                        game_state = GameState::Playing;
+                    }
+                    MapSelectionResult::Back => {
+                        log::info!("Returning to saves menu from map selection");
+                        game_state = GameState::SavesMenu;
+                    }
+                    MapSelectionResult::None => {}
+                }
+            }
+
             GameState::Playing => {
                 if let Some(ref mut game) = single_player_game {
                     // Handle input
@@ -150,8 +185,11 @@ async fn main() {
                         _ => {}
                     }
 
-                    // Update game
-                    game.update(delta_time);
+                    // Fixed timestep physics update
+                    while physics_accumulator >= PHYSICS_TIMESTEP {
+                        game.update(PHYSICS_TIMESTEP);
+                        physics_accumulator -= PHYSICS_TIMESTEP;
+                    }
                 }
             }
 
@@ -200,8 +238,11 @@ async fn main() {
                         _ => {}
                     }
 
-                    // Update game
-                    game.update(delta_time);
+                    // Fixed timestep physics update
+                    while physics_accumulator >= PHYSICS_TIMESTEP {
+                        game.update(PHYSICS_TIMESTEP);
+                        physics_accumulator -= PHYSICS_TIMESTEP;
+                    }
                 }
             }
 
@@ -332,7 +373,11 @@ async fn main() {
                     }
 
                     if !should_drop_host {
-                        host.update(delta_time);
+                        // Fixed timestep physics update
+                        while physics_accumulator >= PHYSICS_TIMESTEP {
+                            host.update(PHYSICS_TIMESTEP);
+                            physics_accumulator -= PHYSICS_TIMESTEP;
+                        }
                     }
                 }
                 // Drop the host to close the UDP socket and free the port
@@ -363,7 +408,11 @@ async fn main() {
                     }
 
                     if !should_drop_client {
-                        client.update(delta_time);
+                        // Fixed timestep physics update
+                        while physics_accumulator >= PHYSICS_TIMESTEP {
+                            client.update(PHYSICS_TIMESTEP);
+                            physics_accumulator -= PHYSICS_TIMESTEP;
+                        }
                     }
                 }
                 // Drop the client to close the UDP socket
@@ -383,6 +432,10 @@ async fn main() {
 
             GameState::SavesMenu => {
                 saves_menu.draw();
+            }
+
+            GameState::MapSelection => {
+                map_selection_menu.render();
             }
 
             GameState::MultiplayerMenu => {

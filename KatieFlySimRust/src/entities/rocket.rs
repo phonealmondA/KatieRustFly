@@ -115,22 +115,8 @@ impl Rocket {
         self.max_mass - self.mass
     }
 
-    fn update_mass_from_fuel(&mut self) {
-        let old_mass = self.mass;
-        self.mass = self.base_mass + self.current_fuel;
-
-        // Preserve momentum when mass changes
-        if old_mass > 0.0 && self.mass > 0.0 {
-            self.preserve_momentum_during_mass_change(old_mass, self.mass);
-        }
-    }
-
-    fn preserve_momentum_during_mass_change(&mut self, old_mass: f32, new_mass: f32) {
-        // p = m * v  =>  v_new = (m_old * v_old) / m_new
-        if new_mass > 0.0 {
-            self.data.velocity = self.data.velocity * (old_mass / new_mass);
-        }
-    }
+    // Note: Momentum preservation removed - it was causing velocity amplification bugs
+    // The rocket equation (via thrust forces) already properly handles momentum changes
 
     // === Fuel System ===
     pub fn current_fuel(&self) -> f32 {
@@ -155,13 +141,6 @@ impl Rocket {
 
     pub fn set_fuel(&mut self, fuel: f32) {
         self.current_fuel = fuel.clamp(0.0, self.max_fuel);
-        self.update_mass_from_fuel();
-    }
-
-    /// Set fuel without preserving momentum (used when loading saves)
-    pub fn set_fuel_direct(&mut self, fuel: f32) {
-        self.current_fuel = fuel.clamp(0.0, self.max_fuel);
-        // Update mass without momentum preservation
         self.mass = self.base_mass + self.current_fuel;
     }
 
@@ -176,7 +155,10 @@ impl Rocket {
 
         let consumption = self.calculate_fuel_consumption() * delta_time;
         self.current_fuel = (self.current_fuel - consumption).max(0.0);
-        self.update_mass_from_fuel();
+        // Don't preserve momentum when consuming fuel - the rocket equation
+        // already accounts for momentum change via thrust force
+        // Preserving momentum here would double-count and amplify velocity
+        self.mass = self.base_mass + self.current_fuel;
     }
 
     fn calculate_fuel_consumption(&self) -> f32 {
@@ -439,15 +421,16 @@ impl Rocket {
     }
 
     /// Land the rocket on a planet
-    pub fn land_on_planet(&mut self, planet_id: usize, surface_position: Vec2) {
+    pub fn land_on_planet(&mut self, planet_id: usize, surface_position: Vec2, planet_velocity: Vec2) {
         self.landed = true;
         self.landed_on_planet_id = Some(planet_id);
         self.data.position = surface_position;
-        self.data.velocity = Vec2::ZERO;
+        // CRITICAL: Match planet's velocity to stay in its reference frame
+        self.data.velocity = planet_velocity;
         self.thrust_level = 0.0;
         self.is_currently_thrusting = false;
-        log::info!("Rocket landed on planet {} at position ({:.1}, {:.1})",
-            planet_id, surface_position.x, surface_position.y);
+        log::info!("Rocket landed on planet {} at position ({:.1}, {:.1}), velocity ({:.1}, {:.1})",
+            planet_id, surface_position.x, surface_position.y, planet_velocity.x, planet_velocity.y);
     }
 
     /// Take off from a planet
@@ -517,7 +500,9 @@ impl GameObject for Rocket {
                 just_took_off = true;
                 // Continue to update position after takeoff (don't return)
             } else {
-                // Don't update position or physics while landed
+                // Update position to follow the planet's motion (velocity matches planet)
+                // This is critical for orbiting planets - rocket must move with planet!
+                self.data.position += self.data.velocity * delta_time;
                 return;
             }
         }

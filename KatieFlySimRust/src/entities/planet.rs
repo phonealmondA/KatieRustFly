@@ -13,6 +13,8 @@ pub struct Planet {
     radius: f32,
     initial_mass: f32,   // Store starting mass for proportional scaling
     initial_radius: f32, // Store starting radius for proportional scaling
+    name: Option<String>, // Planet name (e.g., "Earth", "Moon", "Sun")
+    is_pinned: bool,     // If true, planet doesn't move (for central bodies like Sun)
 }
 
 impl Planet {
@@ -23,6 +25,8 @@ impl Planet {
             radius,
             initial_mass: mass,     // Store initial values
             initial_radius: radius, // for proportional scaling
+            name: None,             // No name by default
+            is_pinned: false,       // Not pinned by default
         }
     }
 
@@ -41,6 +45,8 @@ impl Planet {
             radius,
             initial_mass,
             initial_radius,
+            name: None,       // No name by default
+            is_pinned: false, // Not pinned by default
         }
     }
 
@@ -79,9 +85,11 @@ impl Planet {
         self.mass >= GameConstants::MIN_PLANET_MASS_FOR_COLLECTION
     }
 
-    /// Get fuel collection range for this planet
+    /// Get fuel collection range for this planet (scales with planet size)
     pub fn fuel_collection_range(&self) -> f32 {
-        self.radius + GameConstants::FUEL_COLLECTION_RANGE
+        // Collection range extends 10% beyond planet radius
+        // This makes Sun's range huge (~1,200,000) and Pluto's tiny (~2,000)
+        self.radius * 1.10
     }
 
     /// Draw fuel collection ring around planet
@@ -127,6 +135,22 @@ impl Planet {
 
     pub fn set_position(&mut self, position: Vec2) {
         self.data.position = position;
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    pub fn set_name(&mut self, name: String) {
+        self.name = Some(name);
+    }
+
+    pub fn is_pinned(&self) -> bool {
+        self.is_pinned
+    }
+
+    pub fn set_pinned(&mut self, pinned: bool) {
+        self.is_pinned = pinned;
     }
 }
 

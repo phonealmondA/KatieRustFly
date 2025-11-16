@@ -2,31 +2,20 @@
 // Extended from original C++ VehicleManager with trajectory and force display
 
 use macroquad::prelude::*;
-use crate::entities::{Rocket, Planet};
+use crate::entities::{Rocket, Planet, GameObject};
 use crate::physics::TrajectoryPredictor;
 use crate::systems::EntityId;
 
-/// Reference body for trajectory calculations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReferenceBody {
-    Earth,  // Largest planet (default)
-    Moon,   // Secondary planet
-}
-
-impl ReferenceBody {
-    pub fn toggle(&self) -> Self {
-        match self {
-            ReferenceBody::Earth => ReferenceBody::Moon,
-            ReferenceBody::Moon => ReferenceBody::Earth,
-        }
-    }
-}
+/// Reference body index for trajectory calculations
+/// This is an index into the planets array
+pub type ReferenceBody = usize;
 
 /// Vehicle visualization options
 #[derive(Debug, Clone)]
 pub struct VisualizationOptions {
     pub show_trajectory: bool,
     pub show_gravity_forces: bool,
+    pub show_planet_trajectories: bool,
     pub trajectory_steps: usize,
     pub trajectory_time_step: f32,
     pub force_vector_scale: f32,
@@ -38,10 +27,11 @@ impl Default for VisualizationOptions {
         VisualizationOptions {
             show_trajectory: true,
             show_gravity_forces: false,
+            show_planet_trajectories: false,
             trajectory_steps: 200,
             trajectory_time_step: 0.5,
             force_vector_scale: 15.0,
-            reference_body: ReferenceBody::Earth,
+            reference_body: 0, // Default to first celestial body
         }
     }
 }
@@ -82,9 +72,17 @@ impl VehicleManager {
         self.visualization.show_gravity_forces = !self.visualization.show_gravity_forces;
     }
 
-    /// Toggle reference body (Earth <-> Moon)
-    pub fn toggle_reference_body(&mut self) {
-        self.visualization.reference_body = self.visualization.reference_body.toggle();
+    /// Toggle planet trajectory visualization
+    pub fn toggle_planet_trajectories(&mut self) {
+        self.visualization.show_planet_trajectories = !self.visualization.show_planet_trajectories;
+    }
+
+    /// Cycle to next reference body
+    pub fn toggle_reference_body(&mut self, num_bodies: usize) {
+        if num_bodies == 0 {
+            return;
+        }
+        self.visualization.reference_body = (self.visualization.reference_body + 1) % num_bodies;
     }
 
     /// Set visualization options
@@ -174,27 +172,11 @@ impl VehicleManager {
             return;
         }
 
-        // Find Earth (largest) and Moon (secondary)
-        let mut earth_idx = 0;
-        let mut max_radius = 0.0f32;
-        for (i, planet) in planets.iter().enumerate() {
-            if planet.radius() > max_radius {
-                max_radius = planet.radius();
-                earth_idx = i;
-            }
-        }
-
-        // Get the selected body
-        let selected_idx = match self.visualization.reference_body {
-            ReferenceBody::Earth => earth_idx,
-            ReferenceBody::Moon => {
-                // Find the other planet (not Earth)
-                if planets.len() < 2 {
-                    earth_idx
-                } else {
-                    if earth_idx == 0 { 1 } else { 0 }
-                }
-            }
+        // Get the selected body index (ensure it's within bounds)
+        let selected_idx = if self.visualization.reference_body < planets.len() {
+            self.visualization.reference_body
+        } else {
+            0
         };
 
         let selected_planet = planets[selected_idx];
@@ -206,10 +188,67 @@ impl VehicleManager {
         draw_circle_lines(pos.x, pos.y, circle_radius, 2.0, Color::new(0.0, 0.0, 0.0, 0.8));
     }
 
+    /// Draw trajectory predictions for all planets (IMPROVED with better visibility)
+    pub fn draw_planet_trajectories(&mut self, planets: &[&Planet], zoom_level: f32) {
+        if !self.visualization.show_planet_trajectories || planets.is_empty() {
+            return;
+        }
+
+        // Draw trajectory for each planet
+        for planet in planets.iter() {
+            let planet_name = planet.name().unwrap_or("Unknown");
+
+            // Skip pinned planets (they don't move)
+            if planet.is_pinned() {
+                continue;
+            }
+
+            let vel = planet.velocity();
+            let vel_mag = (vel.x * vel.x + vel.y * vel.y).sqrt();
+
+            // Skip stationary planets
+            if vel_mag < 0.1 {
+                continue;
+            }
+
+            // Use longer prediction for planets (they move slower)
+            let planet_traj_steps = (self.visualization.trajectory_steps * 3).min(1000);
+
+            // Predict trajectory using the planet's current position, velocity, and mass
+            let (trajectory_points, _self_intersects) = self.trajectory_predictor.predict_trajectory_from_state(
+                planet.position(),
+                planet.velocity(),
+                planet.mass(),
+                planets,
+                self.visualization.trajectory_time_step,
+                planet_traj_steps,
+                false, // Don't detect self-intersection for planets
+            );
+
+            // Use a brighter, more visible color scheme for planet orbits
+            // Make the trajectories glow with higher alpha for better visibility
+            let base_color = planet.color();
+            let enhanced_color = Color::new(
+                base_color.r.max(0.3), // Ensure minimum brightness
+                base_color.g.max(0.3),
+                base_color.b.max(0.3),
+                0.8, // Higher alpha for better visibility
+            );
+
+            // Draw trajectory with enhanced visibility
+            self.trajectory_predictor.draw_trajectory(
+                &trajectory_points,
+                enhanced_color,
+                false, // No self-intersection warning for planets
+                zoom_level,
+            );
+        }
+    }
+
     /// Draw HUD overlay for visualization status
-    pub fn draw_visualization_hud(&self) {
+    pub fn draw_visualization_hud(&self, planets: &[&Planet]) {
         let x = 10.0;
-        let mut y = screen_height() - 145.0;
+        let mut y = screen_height() - 170.0;
         let line_height = 25.0;
         let font_size = 18.0;
 
@@ -245,12 +284,33 @@ impl VehicleManager {
         draw_text(forces_status, x, y, font_size, forces_color);
         y += line_height;
 
-        // Reference body status
-        let ref_body_text = match self.visualization.reference_body {
-            ReferenceBody::Earth => "  Ref: Earth (Tab)",
-            ReferenceBody::Moon => "  Ref: Moon (Tab)",
+        // Planet trajectories status
+        let planet_traj_status = if self.visualization.show_planet_trajectories {
+            "✓ Planet Orbits (O)"
+        } else {
+            "  Planet Orbits (O)"
         };
-        draw_text(ref_body_text, x, y, font_size, Color::new(0.7, 0.9, 1.0, 1.0));
+        let planet_traj_color = if self.visualization.show_planet_trajectories {
+            Color::new(0.0, 1.0, 0.0, 1.0)
+        } else {
+            Color::new(0.5, 0.5, 0.5, 1.0)
+        };
+        draw_text(planet_traj_status, x, y, font_size, planet_traj_color);
+        y += line_height;
+
+        // Reference body status - show actual planet name
+        let ref_body_name = if planets.is_empty() {
+            "Unknown"
+        } else {
+            let idx = if self.visualization.reference_body < planets.len() {
+                self.visualization.reference_body
+            } else {
+                0
+            };
+            planets[idx].name().unwrap_or("Unknown")
+        };
+        let ref_body_text = format!("  Ref: {} (Tab)", ref_body_name);
+        draw_text(&ref_body_text, x, y, font_size, Color::new(0.7, 0.9, 1.0, 1.0));
     }
 
     /// Check if vehicle can convert to satellite
