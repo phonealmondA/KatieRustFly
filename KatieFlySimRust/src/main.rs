@@ -75,13 +75,20 @@ async fn main() {
     let mut frame_count = 0u64;
     let mut fps_timer = 0.0f32;
 
-    log::info!("Entering main game loop");
+    // Fixed timestep for smooth physics
+    const PHYSICS_TIMESTEP: f32 = 1.0 / 120.0; // 120 Hz physics for ultra-smooth movement
+    let mut physics_accumulator = 0.0f32;
+
+    log::info!("Entering main game loop with fixed timestep physics (120 Hz)");
 
     // Main game loop
     loop {
-        let delta_time = get_frame_time();
+        let delta_time = get_frame_time().min(0.1); // Cap max frame time to prevent spiral of death
         frame_count += 1;
         fps_timer += delta_time;
+
+        // Accumulate frame time for fixed timestep physics
+        physics_accumulator += delta_time;
 
         // Handle input based on game state
         match game_state {
@@ -139,14 +146,15 @@ async fn main() {
                 match result {
                     MapSelectionResult::MapSelected(map_name) => {
                         log::info!("Map selected: {}", map_name);
-                        // Find the map configuration by name
-                        let selected_map = if map_name == "earth moon" {
-                            MapConfiguration::earth_moon()
-                        } else if map_name == "solar 1" {
-                            MapConfiguration::solar_1()
-                        } else {
-                            MapConfiguration::earth_moon() // Fallback
-                        };
+                        // Find the map configuration by name from all available maps
+                        let all_maps = MapConfiguration::all_maps();
+                        let selected_map = all_maps
+                            .into_iter()
+                            .find(|m| m.name == map_name)
+                            .unwrap_or_else(|| {
+                                log::warn!("Map '{}' not found, using default", map_name);
+                                MapConfiguration::earth_moon()
+                            });
 
                         let mut new_game = SinglePlayerGame::new_with_map(window_size, selected_map);
                         new_game.initialize_new_game();
@@ -177,8 +185,11 @@ async fn main() {
                         _ => {}
                     }
 
-                    // Update game
-                    game.update(delta_time);
+                    // Fixed timestep physics update
+                    while physics_accumulator >= PHYSICS_TIMESTEP {
+                        game.update(PHYSICS_TIMESTEP);
+                        physics_accumulator -= PHYSICS_TIMESTEP;
+                    }
                 }
             }
 
@@ -227,8 +238,11 @@ async fn main() {
                         _ => {}
                     }
 
-                    // Update game
-                    game.update(delta_time);
+                    // Fixed timestep physics update
+                    while physics_accumulator >= PHYSICS_TIMESTEP {
+                        game.update(PHYSICS_TIMESTEP);
+                        physics_accumulator -= PHYSICS_TIMESTEP;
+                    }
                 }
             }
 
@@ -359,7 +373,11 @@ async fn main() {
                     }
 
                     if !should_drop_host {
-                        host.update(delta_time);
+                        // Fixed timestep physics update
+                        while physics_accumulator >= PHYSICS_TIMESTEP {
+                            host.update(PHYSICS_TIMESTEP);
+                            physics_accumulator -= PHYSICS_TIMESTEP;
+                        }
                     }
                 }
                 // Drop the host to close the UDP socket and free the port
@@ -390,7 +408,11 @@ async fn main() {
                     }
 
                     if !should_drop_client {
-                        client.update(delta_time);
+                        // Fixed timestep physics update
+                        while physics_accumulator >= PHYSICS_TIMESTEP {
+                            client.update(PHYSICS_TIMESTEP);
+                            physics_accumulator -= PHYSICS_TIMESTEP;
+                        }
                     }
                 }
                 // Drop the client to close the UDP socket

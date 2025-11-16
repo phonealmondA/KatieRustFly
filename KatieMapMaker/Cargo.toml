@@ -1,0 +1,20 @@
+[package]
+name = "katie_map_maker"
+version = "0.1.0"
+edition = "2021"
+authors = ["FlySimNewA Team"]
+description = "Map maker tool for KatieFlySimRust"
+
+[dependencies]
+# Graphics and UI
+macroquad = "0.4"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.8"  # Rust Object Notation for map files
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

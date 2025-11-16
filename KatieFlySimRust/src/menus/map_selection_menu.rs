@@ -76,7 +76,7 @@ impl MapSelectionMenu {
 
         let button_width = 500.0;
         let button_height = 80.0;
-        let button_spacing = 100.0;
+        let button_spacing = 120.0;
         let start_y = 180.0;
 
         for (i, map) in maps.iter().enumerate() {

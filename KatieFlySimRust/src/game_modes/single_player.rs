@@ -236,13 +236,15 @@ impl SinglePlayerGame {
 
         // Restore map configuration
         if let Some(map_name) = snapshot.map_name {
-            self.current_map = if map_name == "earth moon" {
-                MapConfiguration::earth_moon()
-            } else if map_name == "solar 1" {
-                MapConfiguration::solar_1()
-            } else {
-                MapConfiguration::earth_moon() // Fallback to default
-            };
+            // Try to find the map in all available maps (built-in + custom)
+            let all_maps = MapConfiguration::all_maps();
+            self.current_map = all_maps
+                .into_iter()
+                .find(|m| m.name == map_name)
+                .unwrap_or_else(|| {
+                    log::warn!("Map '{}' not found, using default", map_name);
+                    MapConfiguration::earth_moon()
+                });
             log::info!("Restored map: {}", map_name);
         }
 
@@ -502,10 +504,16 @@ impl SinglePlayerGame {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
 
-        // Tab key: Toggle reference body for trajectory calculations
+        if is_key_pressed(KeyCode::O) {
+            self.vehicle_manager.toggle_planet_trajectories();
+            log::info!("Toggled planet trajectory visualization: {}", self.vehicle_manager.visualization().show_planet_trajectories);
+        }
+
+        // Tab key: Cycle through reference bodies for trajectory calculations
         if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+            let num_bodies = self.world.planets().count();
+            self.vehicle_manager.toggle_reference_body(num_bodies);
+            log::info!("Cycled to reference body: {}", self.vehicle_manager.visualization().reference_body);
         }
 
         // Mouse wheel zoom (adaptive delta based on current zoom level for smooth zooming)
@@ -1047,6 +1055,9 @@ impl SinglePlayerGame {
             self.vehicle_manager.draw_visualizations(rocket, &all_planets, zoom_level, self.camera.camera());
         }
 
+        // Draw planet trajectory visualizations
+        self.vehicle_manager.draw_planet_trajectories(&all_planets, zoom_level);
+
         // Draw overlay dots for marked satellites
         for sat_id in &self.marked_satellites {
             if let Some(satellite) = self.world.get_satellite(*sat_id) {
@@ -1106,28 +1117,20 @@ impl SinglePlayerGame {
         };
 
         // Get selected planet for panels 2 and 3 based on reference body
-        use crate::systems::ReferenceBody;
-        let reference_body = self.vehicle_manager.visualization().reference_body;
+        let reference_body_idx = self.vehicle_manager.visualization().reference_body;
 
-        // Find planets by mass (not array index) to handle HashMap unpredictable ordering
-        // Earth has mass ~198M (large), Moon has mass ~11M (small)
-        const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
-        let selected_planet = match reference_body {
-            ReferenceBody::Earth => {
-                // Find planet with mass > threshold (Earth)
-                all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
-            },
-            ReferenceBody::Moon => {
-                // Find planet with mass < threshold (Moon)
-                all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
-            },
+        // Get the selected planet by index (ensure it's within bounds)
+        let selected_planet = if reference_body_idx < all_planets.len() {
+            Some(all_planets[reference_body_idx])
+        } else {
+            all_planets.first().copied()
         };
 
         self.info_display.update_all_panels(
             active_rocket,
             &all_planets,
             selected_planet,
-            reference_body,  // Pass reference body so UI knows which planet
+            reference_body_idx,  // Pass reference body index so UI knows which planet
             self.selected_thrust_level,
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)
@@ -1138,7 +1141,7 @@ impl SinglePlayerGame {
         self.info_display.draw_all_panels();
 
         // Draw visualization HUD (shows T and G key status)
-        self.vehicle_manager.draw_visualization_hud();
+        self.vehicle_manager.draw_visualization_hud(&all_planets);
 
         // Draw "what a save!!" celebration text in screen space
         if let Some(screen_pos) = celebration_screen_pos {

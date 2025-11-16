@@ -114,9 +114,8 @@ impl World {
             }
 
             // Remove fuel (1 unit becomes the bullet)
-            // Use set_fuel_direct to avoid momentum preservation - the bullet carries the mass/momentum
             let new_fuel = rocket.current_fuel() - 1.0;
-            rocket.set_fuel_direct(new_fuel);
+            rocket.set_fuel(new_fuel);
 
             // Get rocket's facing direction
             let rotation = rocket.rotation();
@@ -454,17 +453,18 @@ impl World {
                         // Calculate surface position (normalize direction and place on surface)
                         let direction = (rocket.position() - planet.position()).normalize();
                         let surface_position = planet.position() + direction * planet.radius();
-                        rockets_to_land.push((*rocket_id, *planet_id, surface_position));
+                        let planet_velocity = planet.velocity();
+                        rockets_to_land.push((*rocket_id, *planet_id, surface_position, planet_velocity));
                         break;
                     }
                 }
             }
         }
 
-        // Land rockets on planets
-        for (rocket_id, planet_id, surface_position) in rockets_to_land {
+        // Land rockets on planets (matching planet velocity to stay in orbit)
+        for (rocket_id, planet_id, surface_position, planet_velocity) in rockets_to_land {
             if let Some(rocket) = self.rockets.get_mut(&rocket_id) {
-                rocket.land_on_planet(planet_id, surface_position);
+                rocket.land_on_planet(planet_id, surface_position, planet_velocity);
             }
         }
 

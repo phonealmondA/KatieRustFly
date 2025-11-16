@@ -38,18 +38,18 @@ impl MapConfiguration {
         }
     }
 
-    /// Solar System: Realistic scale with Sun + 9 planets + Moon
-    /// Using 1 AU = 3,000,000 pixels, Earth radius = 10,000 as reference
-    /// This ensures all planets orbit outside Sun's 1,090,000 pixel radius
+    /// Solar System: Gameplay-optimized scale with Sun + 9 planets + Moon
+    /// Scaled for slower orbital periods: Earth takes 365.25 minutes to orbit Sun (1 real minute = 1 game day)
+    /// Using 1 AU = 42,000,000 pixels (14x larger than realistic for slower orbits)
     pub fn solar_1() -> Self {
         // Earth mass and radius as reference (unchanged from original game)
         let earth_mass = GameConstants::MAIN_PLANET_MASS; // 198,910,000
         let earth_radius = GameConstants::MAIN_PLANET_RADIUS; // 10,000
-        let au = 3_000_000.0; // 1 Astronomical Unit in pixels (7.5x larger than before)
+        let au = 42_000_000.0; // 1 Astronomical Unit in pixels (14x larger for 52x slower orbits)
 
         MapConfiguration {
             name: "solar 1".to_string(),
-            description: "Realistic solar system with proper scales and distances".to_string(),
+            description: "Solar system scaled for gameplay: Earth orbits in 365.25 minutes (1 min = 1 day)".to_string(),
             celestial_bodies: vec![
                 // --- SUN (index 0) ---
                 // Mass: 333,000 Earth masses, Radius: 109 Earth radii
@@ -210,11 +210,96 @@ impl MapConfiguration {
         }
     }
 
-    /// Get all available maps
+    pub fn katie_1() -> Self {
+        MapConfiguration {
+            name: "Katie_1".to_string(),
+            description: "Katie system: Earth, Moon, and Katie".to_string(),
+            celestial_bodies: vec![
+                // --- EARTH (index 0) - Central body ---
+                CelestialBodyConfig {
+                    name: "Earth".to_string(),
+                    mass: 198_910_000.0,        // Earth's mass
+                    radius: 10_000.0,           // Earth's radius in pixels
+                    color: BLUE,
+                    orbital_parent_index: None,
+                    orbital_distance: None,
+                    orbital_period: None,
+                    initial_angle: 0.0,
+                    is_pinned: true,            // Stays at origin (center of map)
+                },
+
+                // --- MOON (index 1) - Orbits Earth ---
+                CelestialBodyConfig {
+                    name: "Moon".to_string(),
+                    mass: 11_934_600.0,         // Moon's mass (6% of Earth)
+                    radius: 600.0,              // Moon's radius in pixels (6% of Earth)
+                    color: Color::from_rgba(150, 150, 150, 255), // Gray
+                    orbital_parent_index: Some(0), // Orbits Earth
+                    orbital_distance: Some(30_000.0), // Distance from Earth in pixels
+                    orbital_period: Some(120.0), // Time for one orbit in seconds
+                    initial_angle: 0.0,         // Starting position (0 = right, PI/2 = top, PI = left)
+                    is_pinned: false,
+                },
+
+                // --- KATIE (index 2) - Orbits Moon ---
+                CelestialBodyConfig {
+                    name: "Katie".to_string(),
+                    mass: 3_978_200.0,        // Katie's mass
+                    radius: 200.0,            // Katie's radius in pixels (20% of Earth size)
+                    color: Color::from_rgba(255, 105, 180, 255), // HOT PINK for easy visibility!
+                    orbital_parent_index: Some(1), // Orbits Moon
+                    orbital_distance: Some(10_000.0), // Distance from Moon
+                    orbital_period: Some(60.0), // Time for one orbit in seconds (1/2x Moon's period)
+                    initial_angle: 0.0, // Starting position
+                    is_pinned: false,
+                },
+            ],
+            player_spawn_body_index: 0, // Spawn on Earth (index 0)
+            central_body_index: Some(0), // Earth is center of view
+        }
+    }
+
+    /// Load custom maps from the maps/ folder
+    pub fn load_custom_maps() -> Vec<MapConfiguration> {
+        let mut custom_maps = Vec::new();
+        let maps_folder = "maps";
+
+        // Create maps folder if it doesn't exist
+        let _ = std::fs::create_dir_all(maps_folder);
+
+        // Try to read the maps directory
+        if let Ok(entries) = std::fs::read_dir(maps_folder) {
+            for entry in entries.flatten() {
+                if let Ok(path) = entry.path().canonicalize() {
+                    if path.extension().and_then(|s| s.to_str()) == Some("ron") {
+                        match MapConfiguration::load_from_file(path.to_str().unwrap()) {
+                            Ok(map) => {
+                                println!("Loaded custom map: {}", map.name);
+                                custom_maps.push(map);
+                            }
+                            Err(e) => {
+                                println!("Failed to load map from {:?}: {}", path, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        custom_maps
+    }
+
+    /// Get all available maps (built-in + custom)
     pub fn all_maps() -> Vec<MapConfiguration> {
-        vec![
+        let mut maps = vec![
             MapConfiguration::earth_moon(),
             MapConfiguration::solar_1(),
-        ]
+            MapConfiguration::katie_1(),
+        ];
+
+        // Add custom maps
+        maps.extend(MapConfiguration::load_custom_maps());
+
+        maps
     }
 }
