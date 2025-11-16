@@ -131,8 +131,9 @@ impl GravitySimulator {
         let direction = pos2 - pos1;
         let mut distance = vector_helper::magnitude(direction);
 
-        // Minimum distance to prevent extreme forces
-        const MIN_DISTANCE: f32 = 0.5;
+        // Minimum distance to prevent extreme forces (increased for large scaled planets)
+        // This prevents jittering when very close to massive bodies
+        const MIN_DISTANCE: f32 = 20.0;
         if distance < MIN_DISTANCE {
             distance = MIN_DISTANCE;
         }

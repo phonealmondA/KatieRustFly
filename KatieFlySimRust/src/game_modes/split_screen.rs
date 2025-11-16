@@ -402,8 +402,9 @@ impl SplitScreenGame {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
         if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+            let num_bodies = self.world.planets().count();
+            self.vehicle_manager.toggle_reference_body(num_bodies);
+            log::info!("Cycled to reference body: {}", self.vehicle_manager.visualization().reference_body);
         }
 
         // Quick save (F5 key) - saves and shows "what a save!!" celebration
@@ -760,7 +761,7 @@ impl SplitScreenGame {
                     Some(r1),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    0,  // Default to first planet (index 0)
                     self.player1_state.thrust_level(),
                     false,  // network_connected (not applicable for local split-screen)
                     Some(0),  // Player 1 ID
@@ -781,7 +782,7 @@ impl SplitScreenGame {
                     Some(r2),
                     &all_planets,
                     selected_planet,
-                    ReferenceBody::Earth,  // Default to Earth
+                    0,  // Default to first planet (index 0)
                     self.player2_state.thrust_level(),
                     false,  // network_connected
                     Some(1),  // Player 2 ID

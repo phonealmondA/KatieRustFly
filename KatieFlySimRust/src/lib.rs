@@ -4,6 +4,9 @@
 // Game constants and configuration
 pub mod game_constants;
 
+// Map configuration system
+pub mod map_config;
+
 // Game state management
 pub mod game_state;
 

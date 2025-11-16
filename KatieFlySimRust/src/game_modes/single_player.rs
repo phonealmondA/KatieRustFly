@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 use crate::entities::{GameObject, Planet, Rocket};
 use crate::game_constants::GameConstants;
+use crate::map_config::{MapConfiguration, orbit_calculator};
 use crate::save_system::{GameSaveData, SavedCamera, SavedPlanet, SavedRocket, SavedSatellite};
 use crate::systems::{World, VehicleManager, EntityId};
 use crate::ui::{Camera, GameInfoDisplay};
@@ -38,20 +39,24 @@ pub struct SinglePlayerGame {
     last_auto_save: f32,
     auto_save_interval: f32,
 
-    // Starting position for new rockets
-    rocket_spawn_position: Vec2,
-    rocket_spawn_velocity: Vec2,
-
     // Network map view
     show_network_map: bool,
     marked_satellites: HashSet<EntityId>,
 
     // Save celebration (F5 quick save)
     save_celebration_timer: f32,  // Time remaining for "what a save!!" text
+
+    // Map configuration
+    current_map: MapConfiguration,
+    spawn_planet_id: Option<EntityId>, // Which planet to spawn on
 }
 
 impl SinglePlayerGame {
     pub fn new(window_size: Vec2) -> Self {
+        Self::new_with_map(window_size, MapConfiguration::earth_moon())
+    }
+
+    pub fn new_with_map(window_size: Vec2, map: MapConfiguration) -> Self {
         let info_display = GameInfoDisplay::new();
 
         SinglePlayerGame {
@@ -67,11 +72,11 @@ impl SinglePlayerGame {
             current_save_name: None,
             last_auto_save: 0.0,
             auto_save_interval: 60.0, // Auto-save every 60 seconds
-            rocket_spawn_position: Vec2::ZERO,
-            rocket_spawn_velocity: Vec2::ZERO,
             show_network_map: false,
             marked_satellites: HashSet::new(),
             save_celebration_timer: 0.0,
+            current_map: map,
+            spawn_planet_id: None,
         }
     }
 
@@ -80,67 +85,91 @@ impl SinglePlayerGame {
         self.world.clear_all();
         self.game_time = 0.0;
 
-        // Create main planet (like Earth)
-        let main_planet = Planet::new(
-            Vec2::new(GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y),
-            GameConstants::MAIN_PLANET_RADIUS,
-            GameConstants::MAIN_PLANET_MASS,
-            BLUE,
-        );
-        log::info!("Main planet: pos=({}, {}), radius={}, mass={}",
-            GameConstants::MAIN_PLANET_X, GameConstants::MAIN_PLANET_Y,
-            GameConstants::MAIN_PLANET_RADIUS, GameConstants::MAIN_PLANET_MASS);
-        self.world.add_planet(main_planet);
+        log::info!("Initializing new game with map: {}", self.current_map.name);
 
-        // Create secondary planet (like Moon)
-        let moon_x = *crate::game_constants::SECONDARY_PLANET_X;
-        let moon_y = *crate::game_constants::SECONDARY_PLANET_Y;
-        let moon_radius = GameConstants::SECONDARY_PLANET_RADIUS;
-        let moon_velocity = *crate::game_constants::SECONDARY_PLANET_ORBITAL_VELOCITY;
-
-        log::info!("Moon: pos=({}, {}), radius={}, mass={}, velocity={}",
-            moon_x, moon_y, moon_radius, GameConstants::SECONDARY_PLANET_MASS, moon_velocity);
-        log::info!("Distance from main planet: {}",
-            ((moon_x - GameConstants::MAIN_PLANET_X).powi(2) + (moon_y - GameConstants::MAIN_PLANET_Y).powi(2)).sqrt());
-
-        let mut secondary_planet = Planet::new(
-            Vec2::new(moon_x, moon_y),
-            moon_radius,
-            GameConstants::SECONDARY_PLANET_MASS,
-            Color::from_rgba(150, 150, 150, 255),
+        // Calculate initial states for all celestial bodies
+        let initial_states = orbit_calculator::calculate_initial_states(
+            &self.current_map,
+            GameConstants::G,
         );
 
-        // Set orbital velocity for secondary planet
-        secondary_planet.set_velocity(Vec2::new(
-            0.0,
-            -moon_velocity,
-        ));
+        // Create all celestial bodies from map configuration
+        for (i, body_config) in self.current_map.celestial_bodies.iter().enumerate() {
+            let state = &initial_states[i];
 
-        self.world.add_planet(secondary_planet);
+            let mut planet = Planet::new(
+                state.position,
+                body_config.radius,
+                body_config.mass,
+                body_config.color,
+            );
 
-        // Create starting rocket near main planet
-        let rocket_spawn_distance = GameConstants::MAIN_PLANET_RADIUS + 200.0;
-        self.rocket_spawn_position = Vec2::new(
-            GameConstants::MAIN_PLANET_X + rocket_spawn_distance,
-            GameConstants::MAIN_PLANET_Y,
-        );
-        self.rocket_spawn_velocity = Vec2::new(0.0, 0.0);
+            planet.set_velocity(state.velocity);
+            planet.set_name(body_config.name.clone());
+            planet.set_pinned(body_config.is_pinned);
 
-        let rocket = Rocket::new(
-            self.rocket_spawn_position,
-            self.rocket_spawn_velocity,
-            WHITE,
-            GameConstants::ROCKET_BASE_MASS,
-        );
+            log::info!("Creating {}: pos=({:.1}, {:.1}), radius={:.1}, mass={:.1}, velocity=({:.2}, {:.2}), pinned={}",
+                body_config.name, state.position.x, state.position.y,
+                body_config.radius, body_config.mass,
+                state.velocity.x, state.velocity.y,
+                body_config.is_pinned);
 
-        let rocket_id = self.world.add_rocket(rocket);
+            let planet_id = self.world.add_planet(planet);
 
-        // Set camera to follow rocket
-        if let Some(rocket) = self.world.get_rocket(rocket_id) {
-            self.camera.set_center(rocket.position());
+            // Track spawn planet
+            if i == self.current_map.player_spawn_body_index {
+                self.spawn_planet_id = Some(planet_id);
+            }
         }
 
-        log::info!("New game initialized");
+        // Spawn rocket on designated planet
+        self.spawn_rocket();
+
+        log::info!("New game initialized with {} celestial bodies", self.current_map.celestial_bodies.len());
+    }
+
+    /// Spawn a new rocket on the spawn planet at its CURRENT position with CURRENT velocity
+    /// Returns the rocket ID if successful
+    fn spawn_rocket(&mut self) -> Option<EntityId> {
+        if let Some(spawn_planet_id) = self.spawn_planet_id {
+            if let Some(spawn_planet) = self.world.get_planet(spawn_planet_id) {
+                // Get spawn planet's CURRENT position and velocity (not stored initial values!)
+                let planet_position = spawn_planet.position();
+                let planet_velocity = spawn_planet.velocity();
+
+                // Calculate spawn position 200 pixels above planet surface
+                let spawn_distance = spawn_planet.radius() + 200.0;
+                let rocket_spawn_position = planet_position + Vec2::new(spawn_distance, 0.0);
+
+                // Rocket inherits planet's CURRENT velocity for stable orbit
+                let rocket_spawn_velocity = planet_velocity;
+
+                log::info!("Spawning rocket at ({:.1}, {:.1}) with velocity ({:.2}, {:.2})",
+                    rocket_spawn_position.x, rocket_spawn_position.y,
+                    rocket_spawn_velocity.x, rocket_spawn_velocity.y);
+
+                let mut rocket = Rocket::new(
+                    rocket_spawn_position,
+                    rocket_spawn_velocity,
+                    WHITE,
+                    GameConstants::ROCKET_BASE_MASS,
+                );
+
+                // Set rocket to 100% fuel for better mass and gravity pull
+                rocket.set_fuel(GameConstants::ROCKET_MAX_FUEL);
+                log::info!("Rocket spawned with 100% fuel ({} kg)", GameConstants::ROCKET_MAX_FUEL);
+
+                let rocket_id = self.world.add_rocket(rocket);
+
+                // Set camera to follow rocket
+                if let Some(rocket) = self.world.get_rocket(rocket_id) {
+                    self.camera.set_center(rocket.position());
+                }
+
+                return Some(rocket_id);
+            }
+        }
+        None
     }
 
     /// Load game from save data (used by saves menu)
@@ -205,6 +234,20 @@ impl SinglePlayerGame {
         self.camera.set_center(snapshot.camera.center.into());
         self.camera.set_target_zoom(snapshot.camera.zoom);
 
+        // Restore map configuration
+        if let Some(map_name) = snapshot.map_name {
+            // Try to find the map in all available maps (built-in + custom)
+            let all_maps = MapConfiguration::all_maps();
+            self.current_map = all_maps
+                .into_iter()
+                .find(|m| m.name == map_name)
+                .unwrap_or_else(|| {
+                    log::warn!("Map '{}' not found, using default", map_name);
+                    MapConfiguration::earth_moon()
+                });
+            log::info!("Restored map: {}", map_name);
+        }
+
         log::info!(
             "Loaded snapshot: {} planets, {} rockets, {} satellites at time {:.1}s",
             planet_count,
@@ -245,11 +288,15 @@ impl SinglePlayerGame {
             zoom: self.camera.zoom_level(),
         };
 
+        // Save map configuration
+        save_data.map_name = Some(self.current_map.name.clone());
+
         log::info!(
-            "Created snapshot: {} planets, {} rockets, {} satellites",
+            "Created snapshot: {} planets, {} rockets, {} satellites, map: {}",
             save_data.planets.len(),
             save_data.rockets.len(),
-            save_data.satellites.len()
+            save_data.satellites.len(),
+            self.current_map.name
         );
 
         save_data
@@ -456,24 +503,55 @@ impl SinglePlayerGame {
             self.vehicle_manager.toggle_gravity_forces();
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
-        if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+
+        if is_key_pressed(KeyCode::O) {
+            self.vehicle_manager.toggle_planet_trajectories();
+            log::info!("Toggled planet trajectory visualization: {}", self.vehicle_manager.visualization().show_planet_trajectories);
         }
 
-        // Mouse wheel zoom (reduced delta for finer control)
+        // Tab key: Cycle through reference bodies for trajectory calculations
+        if is_key_pressed(KeyCode::Tab) {
+            let num_bodies = self.world.planets().count();
+            self.vehicle_manager.toggle_reference_body(num_bodies);
+            log::info!("Cycled to reference body: {}", self.vehicle_manager.visualization().reference_body);
+        }
+
+        // Mouse wheel zoom (adaptive delta based on current zoom level for smooth zooming)
         let mouse_wheel = mouse_wheel().1;
         if mouse_wheel != 0.0 {
-            self.camera.adjust_zoom(-mouse_wheel * 0.02);
+            let current_zoom = self.camera.zoom_level();
+            let zoom_delta = current_zoom * 0.1; // 10% of current zoom per scroll
+            self.camera.adjust_zoom(-mouse_wheel * zoom_delta);
         }
 
         // Keyboard zoom controls (E = zoom out, Q = zoom in)
         // Note: zoom_scale = 1/zoom_level, so larger zoom_level = more zoomed out
+        let current_zoom = self.camera.zoom_level();
         if is_key_down(KeyCode::Q) {
-            self.camera.adjust_zoom(-0.02); // Gradual zoom in (decrease zoom_level)
+            let zoom_delta = current_zoom * 0.05; // 5% zoom in per frame
+            self.camera.adjust_zoom(-zoom_delta);
         }
         if is_key_down(KeyCode::E) {
-            self.camera.adjust_zoom(0.02); // Gradual zoom out (increase zoom_level)
+            let zoom_delta = current_zoom * 0.05; // 5% zoom out per frame
+            self.camera.adjust_zoom(zoom_delta);
+        }
+
+        // Quick zoom presets
+        if is_key_pressed(KeyCode::Home) {
+            // Reset to close-up view of rocket
+            self.camera.set_target_zoom(1.0);
+        }
+        if is_key_pressed(KeyCode::End) {
+            // Zoom out to show entire solar system (~237M pixel diameter view)
+            self.camera.set_target_zoom(200000.0);
+        }
+        if is_key_pressed(KeyCode::PageUp) {
+            // Quick zoom in by 50%
+            self.camera.set_target_zoom(current_zoom * 0.5);
+        }
+        if is_key_pressed(KeyCode::PageDown) {
+            // Quick zoom out by 2x
+            self.camera.set_target_zoom(current_zoom * 2.0);
         }
 
         SinglePlayerResult::Continue
@@ -505,22 +583,16 @@ impl SinglePlayerGame {
         // Update world (physics, entities)
         self.world.update(delta_time, manual_refuel_active);
 
-        // Handle rockets destroyed by bullets (respawn like 'C' key, but without satellite)
+        // Handle rockets destroyed by bullets (respawn at Earth's current position)
         let destroyed_rockets = self.world.take_destroyed_rockets();
-        for destroyed in destroyed_rockets {
-            log::info!("Rocket destroyed by bullet, respawning");
+        for _destroyed in destroyed_rockets {
+            log::info!("Rocket destroyed by bullet, respawning at Earth's current position");
 
-            // Spawn new rocket at the starting position
-            let new_rocket = Rocket::new(
-                self.rocket_spawn_position,
-                self.rocket_spawn_velocity,
-                WHITE,
-                GameConstants::ROCKET_BASE_MASS,
-            );
-
-            let new_rocket_id = self.world.add_rocket(new_rocket);
-            self.world.set_active_rocket(Some(new_rocket_id));
-            log::info!("New rocket {} spawned at starting position", new_rocket_id);
+            // Spawn new rocket at Earth's CURRENT position with CURRENT velocity
+            if let Some(new_rocket_id) = self.spawn_rocket() {
+                self.world.set_active_rocket(Some(new_rocket_id));
+                log::info!("New rocket {} spawned", new_rocket_id);
+            }
         }
 
         // Update save celebration timer
@@ -528,7 +600,7 @@ impl SinglePlayerGame {
             self.save_celebration_timer -= delta_time;
         }
 
-        // Update camera to follow active rocket
+        // Update camera to ALWAYS follow active rocket (never planets)
         if let Some(rocket) = self.world.get_active_rocket() {
             self.camera.follow(rocket.position());
         }
@@ -591,17 +663,11 @@ impl SinglePlayerGame {
                 if self.world.convert_rocket_to_satellite(rocket_id).is_some() {
                     log::info!("Rocket converted to satellite");
 
-                    // Spawn new rocket at the starting position
-                    let new_rocket = Rocket::new(
-                        self.rocket_spawn_position,
-                        self.rocket_spawn_velocity,
-                        WHITE,
-                        GameConstants::ROCKET_BASE_MASS,
-                    );
-
-                    let new_id = self.world.add_rocket(new_rocket);
-                    self.world.set_active_rocket(Some(new_id));
-                    log::info!("New rocket spawned at starting position");
+                    // Spawn new rocket at Earth's CURRENT position with CURRENT velocity
+                    if let Some(new_id) = self.spawn_rocket() {
+                        self.world.set_active_rocket(Some(new_id));
+                        log::info!("New rocket spawned at Earth's current position");
+                    }
                 }
             }
         }
@@ -989,6 +1055,9 @@ impl SinglePlayerGame {
             self.vehicle_manager.draw_visualizations(rocket, &all_planets, zoom_level, self.camera.camera());
         }
 
+        // Draw planet trajectory visualizations
+        self.vehicle_manager.draw_planet_trajectories(&all_planets, zoom_level);
+
         // Draw overlay dots for marked satellites
         for sat_id in &self.marked_satellites {
             if let Some(satellite) = self.world.get_satellite(*sat_id) {
@@ -1048,28 +1117,20 @@ impl SinglePlayerGame {
         };
 
         // Get selected planet for panels 2 and 3 based on reference body
-        use crate::systems::ReferenceBody;
-        let reference_body = self.vehicle_manager.visualization().reference_body;
+        let reference_body_idx = self.vehicle_manager.visualization().reference_body;
 
-        // Find planets by mass (not array index) to handle HashMap unpredictable ordering
-        // Earth has mass ~198M (large), Moon has mass ~11M (small)
-        const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
-        let selected_planet = match reference_body {
-            ReferenceBody::Earth => {
-                // Find planet with mass > threshold (Earth)
-                all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
-            },
-            ReferenceBody::Moon => {
-                // Find planet with mass < threshold (Moon)
-                all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
-            },
+        // Get the selected planet by index (ensure it's within bounds)
+        let selected_planet = if reference_body_idx < all_planets.len() {
+            Some(all_planets[reference_body_idx])
+        } else {
+            all_planets.first().copied()
         };
 
         self.info_display.update_all_panels(
             active_rocket,
             &all_planets,
             selected_planet,
-            reference_body,  // Pass reference body so UI knows which planet
+            reference_body_idx,  // Pass reference body index so UI knows which planet
             self.selected_thrust_level,
             false,          // network_connected (not used in single player)
             None,           // player_id (not used in single player)
@@ -1080,7 +1141,7 @@ impl SinglePlayerGame {
         self.info_display.draw_all_panels();
 
         // Draw visualization HUD (shows T and G key status)
-        self.vehicle_manager.draw_visualization_hud();
+        self.vehicle_manager.draw_visualization_hud(&all_planets);
 
         // Draw "what a save!!" celebration text in screen space
         if let Some(screen_pos) = celebration_screen_pos {

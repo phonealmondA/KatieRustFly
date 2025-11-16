@@ -20,7 +20,7 @@ pub struct MainMenu {
 impl MainMenu {
     pub fn new(window_size: Vec2) -> Self {
         // Title
-        let title_text = "KatieFlySimRust".to_string();
+        let title_text = "Katie's Amazing Fly Sim".to_string();
         let title_font_size = 72.0;
 
         // Calculate title position (centered)
@@ -65,7 +65,7 @@ impl MainMenu {
                 start_y + button_spacing * 2.0,
             ),
             Vec2::new(button_width, button_height),
-            "Quit",
+            "Fine, Leave then...",
             Color::from_rgba(120, 50, 50, 255),
         );
 

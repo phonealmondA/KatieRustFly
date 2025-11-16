@@ -353,8 +353,9 @@ impl MultiplayerHost {
             log::info!("Toggled gravity force visualization: {}", self.vehicle_manager.visualization().show_gravity_forces);
         }
         if is_key_pressed(KeyCode::Tab) {
-            self.vehicle_manager.toggle_reference_body();
-            log::info!("Toggled reference body: {:?}", self.vehicle_manager.visualization().reference_body);
+            let num_bodies = self.world.planets().count();
+            self.vehicle_manager.toggle_reference_body(num_bodies);
+            log::info!("Cycled to reference body: {}", self.vehicle_manager.visualization().reference_body);
         }
 
         // F - save game
@@ -1247,29 +1248,21 @@ impl MultiplayerHost {
                 let all_planets: Vec<&Planet> = self.world.planets().collect();
                 let satellite_stats = self.world.get_satellite_network_stats();
 
-                // Get selected planet for panels 2 and 3 based on reference body (same as single player)
-                use crate::systems::ReferenceBody;
-                let reference_body = self.vehicle_manager.visualization().reference_body;
+                // Get selected planet for panels 2 and 3 based on reference body
+                let reference_body_idx = self.vehicle_manager.visualization().reference_body;
 
-                // Find planets by mass (not array index) to handle HashMap unpredictable ordering
-                // Earth has mass ~198M (large), Moon has mass ~11M (small)
-                const MASS_THRESHOLD: f32 = 100_000_000.0; // Midpoint between Earth and Moon
-                let selected_planet = match reference_body {
-                    ReferenceBody::Earth => {
-                        // Find planet with mass > threshold (Earth)
-                        all_planets.iter().find(|p| p.mass() > MASS_THRESHOLD).copied()
-                    },
-                    ReferenceBody::Moon => {
-                        // Find planet with mass < threshold (Moon)
-                        all_planets.iter().find(|p| p.mass() < MASS_THRESHOLD).copied()
-                    },
+                // Get the selected planet by index (ensure it's within bounds)
+                let selected_planet = if reference_body_idx < all_planets.len() {
+                    Some(all_planets[reference_body_idx])
+                } else {
+                    all_planets.first().copied()
                 };
 
                 self.game_info.update_all_panels(
                     Some(rocket),
                     &all_planets,
                     selected_planet,
-                    reference_body,  // Pass reference body so UI knows which planet
+                    reference_body_idx,  // Pass reference body index so UI knows which planet
                     self.player_state.thrust_level(),
                     true,  // network_connected (hosting)
                     Some(0),  // Host is player 0
@@ -1281,7 +1274,7 @@ impl MultiplayerHost {
         }
 
         // Draw visualization HUD (shows T and G key status)
-        self.vehicle_manager.draw_visualization_hud();
+        self.vehicle_manager.draw_visualization_hud(&self.world.planets().collect::<Vec<_>>());
 
         // Show host status at bottom
         {
